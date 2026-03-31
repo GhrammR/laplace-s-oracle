@@ -165,10 +165,13 @@ fn main() {
     let public_key = signing_key.verifying_key();
     let pk_b64 = base64::engine::general_purpose::STANDARD.encode(public_key.as_bytes());
 
-    // 2. Print Key to Stderr
+    // 2. Persist Key for TUI Discovery
+    std::fs::write("/tmp/oracle.pub", pk_b64.as_bytes()).expect("write /tmp/oracle.pub");
+
+    // 3. Print Key to Stderr
     eprintln!("PUBLIC_KEY_B64: {}", pk_b64);
 
-    // 3. Flush Stderr
+    // 4. Flush Stderr
     use std::io::Write;
     std::io::stderr().flush().unwrap();
 

@@ -18,9 +18,9 @@ Start the simulation engine. The daemon will output its Public Key to `stderr`; 
 ```
 
 ### 3. Launch the Panopticon TUI
-In a new terminal, launch the TUI, providing the Public Key from the daemon's startup output.
+In a new terminal, launch the TUI. Providing the Public Key is optional; the TUI will attempt to auto-discover it from `/tmp/oracle.pub`.
 ```bash
-./laplace-tui <PUBLIC_KEY_B64> < /tmp/oracle_pipe
+./laplace-tui [PUBLIC_KEY_B64] < /tmp/oracle_pipe
 ```
 
 ### 4. Dispatch the Genesis Miracle (God CLI)

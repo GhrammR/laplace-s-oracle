@@ -225,8 +225,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     terminal.clear()?;
 
     let args: Vec<String> = std::env::args().collect();
-    if args.len() < 2 { cleanup_terminal(&mut terminal)?; std::process::exit(1); }
-    let pk_bytes = base64::engine::general_purpose::STANDARD.decode(&args[1])?;
+    let pk_str = if args.len() >= 2 {
+        args[1].clone()
+    } else if let Ok(s) = std::fs::read_to_string("/tmp/oracle.pub") {
+        s
+    } else {
+        cleanup_terminal(&mut terminal)?;
+        eprintln!("Identity not found. Is the Oracle running?");
+        std::process::exit(1);
+    };
+
+    let pk_bytes = base64::engine::general_purpose::STANDARD.decode(pk_str.trim())?;
     let vk = VerifyingKey::from_bytes(&pk_bytes.try_into().unwrap_or([0u8; 32]))?;
 
     let (tx, rx_ui) = bounded(256);
