@@ -121,6 +121,7 @@ struct TuiState {
     cursor_pos: (u8, u8),
     last_tick: u64,
     dropped_frames: u64,
+    last_command_time: Option<SystemTime>,
 }
 
 enum RenderEvent { Telemetry(Box<TelemetryFrame>, bool) }
@@ -182,6 +183,28 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
                 payload: 0,
             })
         }
+        "/flood" => {
+            let radius = parts.get(1).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
+            Some(MiracleCommand {
+                nonce: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64,
+                miracle_type: MiracleType::Flood as u8,
+                target_x: state.cursor_pos.0,
+                target_y: state.cursor_pos.1,
+                radius,
+                payload: 0,
+            })
+        }
+        "/drought" => {
+            let radius = parts.get(1).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
+            Some(MiracleCommand {
+                nonce: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64,
+                miracle_type: MiracleType::Drought as u8,
+                target_x: state.cursor_pos.0,
+                target_y: state.cursor_pos.1,
+                radius,
+                payload: 0,
+            })
+        }
         "/infect" => {
             let hash = parts.get(1).and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok()).unwrap_or(0);
             Some(MiracleCommand {
@@ -193,6 +216,24 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
                 payload: hash,
             })
         }
+        "/pause" => Some(MiracleCommand {
+            nonce: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64,
+            miracle_type: MiracleType::Pause as u8,
+            target_x: 0, target_y: 0, radius: 0, payload: 0,
+        }),
+        "/play" => Some(MiracleCommand {
+            nonce: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64,
+            miracle_type: MiracleType::Play as u8,
+            target_x: 0, target_y: 0, radius: 0, payload: 0,
+        }),
+        "/speed" => {
+            let ms = parts.get(1).and_then(|s| s.parse::<u64>().ok()).unwrap_or(16);
+            Some(MiracleCommand {
+                nonce: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64,
+                miracle_type: MiracleType::Speed as u8,
+                target_x: 0, target_y: 0, radius: 0, payload: ms,
+            })
+        }
         _ => None,
     };
 
@@ -200,6 +241,7 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
         if let Ok(mut f) = OpenOptions::new().write(true).open("miracles.db") {
             let _ = f.write_all(&m.to_bytes());
             let _ = f.flush();
+            state.last_command_time = Some(SystemTime::now());
         }
     }
 
@@ -291,6 +333,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         cursor_pos: (32, 8),
         last_tick: 0,
         dropped_frames: 0,
+        last_command_time: None,
     };
 
     loop {
@@ -303,7 +346,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             history.push(fb.pop as u64);
             last = Some((*fb, v));
         }
-        if event::poll(Duration::from_millis(50))? {
+        if event::poll(Duration::from_millis(16))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Release { continue; }
                 match state.mode {
@@ -487,6 +530,21 @@ fn ui(f: &mut Frame, last: &Option<(TelemetryFrame, bool)>, history: &History, s
             Span::raw(&state.command_buffer)
         ]),
     };
+    
+    // Command Acknowledgement overlay
+    let bar = if let Some(last_time) = state.last_command_time {
+        if last_time.elapsed().map(|e| e.as_secs_f32() < 1.0).unwrap_or(false) {
+            let mut spans = bar.spans.clone();
+            spans.push(Span::styled(" | ", Style::default().fg(Color::Gray)));
+            spans.push(Span::styled("COMMAND ACKNOWLEDGED", Style::default().fg(Color::Green).bold()));
+            Line::from(spans)
+        } else {
+            bar
+        }
+    } else {
+        bar
+    };
+
     f.render_widget(Paragraph::new(bar).bg(Color::Black), chunks[2]);
 }
 
@@ -513,6 +571,7 @@ mod tests {
             cursor_pos: (32, 8),
             last_tick: 0,
             dropped_frames: 0,
+            last_command_time: None,
         };
         parse_and_dispatch_command(&mut state);
         assert_eq!(state.mode, InputMode::Normal);
@@ -529,6 +588,7 @@ mod tests {
             cursor_pos: (12, 6),
             last_tick: 0,
             dropped_frames: 0,
+            last_command_time: None,
         };
         parse_and_dispatch_command(&mut state);
         assert_eq!(state.mode, InputMode::Normal);

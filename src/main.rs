@@ -247,6 +247,7 @@ fn main() {
     world.insert_resource(EnvironmentData::default());
     world.insert_resource(EnvironmentStack::default());
     world.insert_resource(StdoutResource(stdout));
+    world.insert_resource(TemporalState::default());
 
     world.spawn((
         WorldTag,
@@ -269,7 +270,7 @@ fn main() {
     schedule.add_systems((
         (genesis_listener_system, mutation_system, spatial_conflict_system, laplace_oracle::evolution::breeding_system, think_system, action_processing_system, memetics_system).chain().in_set(SimulationPhase::Think),
 
-        (hazard_system, thermodynamics_system, microbiome_system, pressure_system, wind_system, vortex_system, volcanic_eruption_system, gravity_system, laplace_oracle::events::world_event_system, laplace_oracle::biology::life_system, leap_system, natural_spawning_system, miracle_grace_system, miracle_grace_cleanup_system, hash_update_system, tick_advance_system).chain().in_set(SimulationPhase::Leap),
+        (hazard_system, thermodynamics_system, microbiome_system, pressure_system, wind_system, vortex_system, volcanic_eruption_system, gravity_system, water_flow_system, hydrologic_cycle_system, laplace_oracle::events::world_event_system, laplace_oracle::biology::life_system, leap_system, natural_spawning_system, miracle_grace_system, miracle_grace_cleanup_system, hash_update_system, tick_advance_system).chain().in_set(SimulationPhase::Leap),
         observation_system.in_set(SimulationPhase::Observation),
     ));
 
@@ -279,15 +280,31 @@ fn main() {
     }).expect("Error setting Ctrl-C handler");
 
     while RUNNING.load(Ordering::SeqCst) {
-        schedule.run(&mut world);
+        let tick_start = std::time::Instant::now();
         
-        // Persist current tick to disk
-        let current_tick = world.resource::<Tick>().0;
-        let mut db_res = world.resource_mut::<MmapResource>();
-        db_res.0[0..8].copy_from_slice(&current_tick.to_le_bytes());
+        let (paused, speed_ms) = {
+            let ts = world.resource::<TemporalState>();
+            (ts.paused, ts.speed_ms)
+        };
+
+        if !paused {
+            schedule.run(&mut world);
+            
+            // Persist current tick to disk
+            let current_tick = world.resource::<Tick>().0;
+            let mut db_res = world.resource_mut::<MmapResource>();
+            db_res.0[0..8].copy_from_slice(&current_tick.to_le_bytes());
+        } else {
+            let mut sub_schedule = Schedule::default();
+            sub_schedule.add_systems(genesis_listener_system);
+            sub_schedule.run(&mut world);
+        }
         
-        // Throttle to ~60 FPS to prevent CPU saturation
-        std::thread::sleep(std::time::Duration::from_millis(16));
+        let elapsed = tick_start.elapsed();
+        let sleep_dur = std::time::Duration::from_millis(speed_ms);
+        if elapsed < sleep_dur {
+            std::thread::sleep(sleep_dur - elapsed);
+        }
     }
 }
 

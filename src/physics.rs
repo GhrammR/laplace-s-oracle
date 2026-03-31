@@ -130,6 +130,81 @@ pub fn gravity_system(mut env: ResMut<EnvironmentStack>) {
     gravity_step(&mut env);
 }
 
+/// Water Flow System: Bitwise fluid dynamics (Gravity + Lateral).
+pub fn water_flow_system(mut env: ResMut<EnvironmentStack>) {
+    water_flow_step(&mut env);
+}
+
+pub fn water_flow_step(env: &mut EnvironmentStack) {
+    let current = *env;
+    let mut next_water = [0u64; 16];
+
+    for i in 0..16 {
+        let prev_i = (i + 15) % 16;
+        let next_i = (i + 1) % 16;
+
+        let w_curr = current.water[i];
+        let w_above = current.water[prev_i];
+        let s_curr = current.structure[i];
+        let s_below = current.structure[next_i];
+        let w_below = current.water[next_i];
+
+        // 1. Gravity: Water bits move down if no structure below
+        let falling_from_above = w_above & !s_curr;
+        let blocked_at_current = w_curr & s_below;
+
+        // 2. Lateral Flow: If supported (structure or water below), spread left/right
+        let supported = s_below | w_below;
+        let can_spread = w_curr & supported;
+        
+        let l = |x: u64| x.rotate_left(1);
+        let r = |x: u64| x.rotate_right(1);
+        
+        let spread_left = l(can_spread) & !s_curr & !w_curr;
+        let spread_right = r(can_spread) & !s_curr & !w_curr;
+        
+        // Water stays if it's blocked below OR if it didn't spread (simplified for bitwise)
+        // Actually, bits move, so we must be careful not to create water.
+        // For lateral flow in a bitboard, we "leak" into neighbors.
+        
+        next_water[i] |= falling_from_above | blocked_at_current | spread_left | spread_right;
+    }
+
+    env.water = next_water;
+}
+
+/// Hydrologic Cycle System: Evaporation-Precipitation cycle.
+pub fn hydrologic_cycle_system(mut env: ResMut<EnvironmentStack>) {
+    hydrologic_cycle_step(&mut env);
+}
+
+pub fn hydrologic_cycle_step(env: &mut EnvironmentStack) {
+    let current = *env;
+    let mut next_water = env.water;
+    let mut next_pressure = env.pressure;
+
+    for i in 0..16 {
+        let next_i = (i + 1) % 16;
+
+        let w = current.water[i];
+        let t = current.temperature[i];
+        let p = current.pressure[i];
+
+        // Evaporation: Water + Heat -> Pressure
+        let evaporated = w & t;
+        next_water[i] &= !evaporated;
+        next_pressure[i] |= evaporated;
+
+        // Precipitation: Pressure + !Heat -> Water (falls to row below)
+        let condensed = p & !t;
+        next_pressure[i] &= !condensed;
+        next_water[next_i] |= condensed;
+    }
+
+    env.water = next_water;
+    env.pressure = next_pressure;
+}
+
 pub fn gravity_step(env: &mut EnvironmentStack) {
     let current = *env;
     let mut next_particle = [0u64; 16];
@@ -353,5 +428,24 @@ mod tests {
 
         let env = world.resource::<EnvironmentStack>();
         assert_eq!(env.memetics[10 * 64 + 11], 0xDEADBEEF);
+    }
+
+    #[test]
+    fn test_water_gravity() {
+        let mut env = EnvironmentStack::default();
+        // Clear all initial water/biomass
+        env.water = [0u64; 16];
+        env.biomass = [0u64; 16];
+        env.structure = [0u64; 16];
+
+        // Place water at (8,8)
+        env.water[8] = 1 << 8;
+        
+        // Step
+        water_flow_step(&mut env);
+        
+        // Assert water moves to (8,9)
+        assert_eq!(env.water[9], 1 << 8);
+        assert_eq!(env.water[8], 0);
     }
 }

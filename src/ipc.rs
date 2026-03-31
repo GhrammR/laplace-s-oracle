@@ -33,6 +33,11 @@ pub enum MiracleType {
     Rain = 2,
     Build = 3,
     Infect = 4,
+    Pause = 5,
+    Play = 6,
+    Speed = 7,
+    Flood = 8,
+    Drought = 9,
 }
 
 impl From<u8> for MiracleType {
@@ -42,6 +47,11 @@ impl From<u8> for MiracleType {
             2 => Self::Rain,
             3 => Self::Build,
             4 => Self::Infect,
+            5 => Self::Pause,
+            6 => Self::Play,
+            7 => Self::Speed,
+            8 => Self::Flood,
+            9 => Self::Drought,
             _ => Self::Genesis,
         }
     }
@@ -88,6 +98,18 @@ pub struct LastMiracleNonce(pub u64);
 #[derive(Resource)]
 pub struct MiracleMmap(pub MmapMut);
 
+#[derive(Resource)]
+pub struct TemporalState {
+    pub paused: bool,
+    pub speed_ms: u64,
+}
+
+impl Default for TemporalState {
+    fn default() -> Self {
+        Self { paused: false, speed_ms: 16 }
+    }
+}
+
 #[derive(Component)]
 pub struct MiracleGrace(pub u32);
 
@@ -97,6 +119,7 @@ pub fn genesis_listener_system(
     mmap: Res<MiracleMmap>,
     mut last_nonce: ResMut<LastMiracleNonce>,
     mut env: ResMut<EnvironmentStack>,
+    mut temp_state: ResMut<TemporalState>,
     query: Query<&crate::temporal::CivIndex>,
     mut commands: Commands,
 ) {
@@ -104,46 +127,103 @@ pub fn genesis_listener_system(
     let cmd = MiracleCommand::from_bytes(bytes);
 
     if cmd.nonce > last_nonce.0 {
-        // 1. ATOMIC TRANSACTION: Consume nonce first
         last_nonce.0 = cmd.nonce;
+        let m_type = MiracleType::from(cmd.miracle_type);
 
-        if cmd.miracle_type == MiracleType::Genesis as u8 {
-            // 2. State Lookup
-            let max_index = query.iter().map(|c| c.0).max().unwrap_or(0);
-            let next_id = max_index + 1;
-
-            let pos = Position { x: cmd.target_x % 64, y: cmd.target_y % 16 };
-
-            // 3. Spawning (transactional batch)
-            for _ in 0..100 {
-                commands.spawn((
-                    Population(100),
-                    Taxonomy(cmd.payload), // payload is species mask for Genesis
-                    SimHashBrain(HUMANOID), // Hardcoded cognitive mask
-                    pos,
-                    crate::intelligence::Action::Idle,
-                    crate::temporal::CivIndex(next_id),
-                    TechnologyMask::default(),
-                    MiracleGrace(100), // Protect for 100 ticks
-                    NewlySpawned,
-                ));
+        match m_type {
+            MiracleType::Genesis => {
+                let max_index = query.iter().map(|c| c.0).max().unwrap_or(0);
+                let next_id = max_index + 1;
+                let pos = Position { x: cmd.target_x % 64, y: cmd.target_y % 16 };
+                for _ in 0..100 {
+                    commands.spawn((
+                        Population(100),
+                        Taxonomy(cmd.payload),
+                        SimHashBrain(HUMANOID),
+                        pos,
+                        crate::intelligence::Action::Idle,
+                        crate::temporal::CivIndex(next_id),
+                        TechnologyMask::default(),
+                        MiracleGrace(100),
+                        NewlySpawned,
+                    ));
+                }
+                env.biomass[pos.y as usize] |= 1 << (pos.x as usize);
+                temp_state.paused = false;
             }
-
-            // 4. EnvironmentStack biomass seeding
-            let row = pos.y as usize;
-            let col = pos.x as usize;
-            env.biomass[row] |= 1 << col;
-        } else if cmd.miracle_type == MiracleType::Fire as u8 {
-            // Ignition logic: Set Temperature layer in radius
-            let tx = cmd.target_x as i16;
-            let ty = cmd.target_y as i16;
-            let r = cmd.radius as i16;
-            for dy in -r..=r {
-                for dx in -r..=r {
-                    let x = tx + dx;
-                    let y = ty + dy;
-                    if x >= 0 && x < 64 && y >= 0 && y < 16 {
-                        env.temperature[y as usize] |= 1 << (x as usize);
+            MiracleType::Fire => {
+                let tx = cmd.target_x as i16;
+                let ty = cmd.target_y as i16;
+                let r = cmd.radius as i16;
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let x = (tx + dx).rem_euclid(64) as usize;
+                        let y = (ty + dy).rem_euclid(16) as usize;
+                        let bit = 1 << x;
+                        env.temperature[y] |= bit;
+                        env.biomass[y] &= !bit; // Fire consumes biomass
+                    }
+                }
+            }
+            MiracleType::Rain => {
+                let tx = cmd.target_x as i16;
+                let ty = cmd.target_y as i16;
+                let r = cmd.radius as i16;
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let x = (tx + dx).rem_euclid(64) as usize;
+                        let y = (ty + dy).rem_euclid(16) as usize;
+                        let bit = 1 << x;
+                        env.water[y] |= bit;
+                        env.temperature[y] &= !bit; // Rain cools fire
+                    }
+                }
+            }
+            MiracleType::Build => {
+                let tx = cmd.target_x as i16;
+                let ty = cmd.target_y as i16;
+                let r = cmd.radius as i16;
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let x = (tx + dx).rem_euclid(64) as usize;
+                        let y = (ty + dy).rem_euclid(16) as usize;
+                        let bit = 1 << x;
+                        env.structure[y] |= bit;
+                        env.biomass[y] &= !bit; // Build consumes biomass
+                    }
+                }
+            }
+            MiracleType::Infect => {
+                let tx = cmd.target_x as usize;
+                let ty = cmd.target_y as usize;
+                if tx < 64 && ty < 16 {
+                    env.memetics[ty * 64 + tx] = cmd.payload;
+                }
+            }
+            MiracleType::Pause => temp_state.paused = true,
+            MiracleType::Play => temp_state.paused = false,
+            MiracleType::Speed => temp_state.speed_ms = cmd.payload.max(1).min(1000),
+            MiracleType::Flood => {
+                let tx = cmd.target_x as i16;
+                let ty = cmd.target_y as i16;
+                let r = cmd.radius as i16;
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let x = (tx + dx).rem_euclid(64) as usize;
+                        let y = (ty + dy).rem_euclid(16) as usize;
+                        env.water[y] |= 1 << x;
+                    }
+                }
+            }
+            MiracleType::Drought => {
+                let tx = cmd.target_x as i16;
+                let ty = cmd.target_y as i16;
+                let r = cmd.radius as i16;
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let x = (tx + dx).rem_euclid(64) as usize;
+                        let y = (ty + dy).rem_euclid(16) as usize;
+                        env.water[y] &= !(1 << x);
                     }
                 }
             }

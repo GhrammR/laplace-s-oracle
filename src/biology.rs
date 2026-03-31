@@ -109,10 +109,19 @@ pub fn life_step(
         let l = |x: u64| x.rotate_left(1);
         let r = |x: u64| x.rotate_right(1);
 
-        // Neighbors
+        // ── Biomass Neighbors ──
         let n1 = l(prev);  let n2 = prev;  let n3 = r(prev);
         let n4 = l(curr);                  let n5 = r(curr);
         let n6 = l(next_r);let n7 = next_r;let n8 = r(next_r);
+
+        // ── Water Proximity (Thirst Gate) ──
+        let w_prev = env_stack.water[(i + 15) % 16];
+        let w_curr = env_stack.water[i];
+        let w_next = env_stack.water[(i + 1) % 16];
+
+        let water_3x3 = l(w_prev) | w_prev | r(w_prev) |
+                        l(w_curr) | w_curr | r(w_curr) |
+                        l(w_next) | w_next | r(w_next);
 
         // Bitwise parallel sum (count 8 neighbors: b2 b1 b0)
         let (s0, c0) = half_adder(n1, n2);
@@ -128,9 +137,9 @@ pub fn life_step(
         let bit1 = sb;
         let bit2 = ca ^ cb;
 
-        // B3 / S23 Rules:
-        let birth = !curr & !bit2 & bit1 & bit0;
-        let survival = curr & !bit2 & bit1;
+        // B3 / S23 Rules + Thirst Gate:
+        let birth = !curr & !bit2 & bit1 & bit0 & water_3x3;
+        let survival = curr & !bit2 & bit1 & water_3x3;
 
         *target = birth | survival;
     });
@@ -161,3 +170,30 @@ fn full_adder(a: u64, b: u64, c: u64) -> (u64, u64) {
     let carry = (a & b) | (c & (a ^ b));
     (s, carry)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::physics::EnvironmentStack;
+    use crate::intelligence::EnvironmentData;
+
+    #[test]
+    fn test_drought_extinction() {
+        let mut env_stack = EnvironmentStack::default();
+        let mut env_data = EnvironmentData::default();
+
+        // No water anywhere
+        env_stack.water = [0u64; 16];
+
+        // Single isolated biomass bit at col 8, row 8
+        env_stack.biomass = [0u64; 16];
+        env_stack.biomass[8] = 1u64 << 8;
+
+        // One life_step tick
+        life_step(&mut env_stack, &mut env_data);
+
+        // Biomass must be dead — no Water in 3x3 neighbourhood
+        assert_eq!(env_stack.biomass[8], 0u64);
+    }
+}
+
