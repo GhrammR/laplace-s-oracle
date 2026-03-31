@@ -12,15 +12,15 @@ mkfifo /tmp/oracle_pipe
 ```
 
 ### 2. Launch the Oracle Daemon
-Start the simulation engine. The daemon will output its Public Key to `stderr`; copy this string for the TUI.
+Start the simulation engine. The daemon will output its Public Key to `stderr`; the TUI will auto-discover it.
 ```bash
 ./laplace-oracle --interval 1 > /tmp/oracle_pipe
 ```
 
 ### 3. Launch the Panopticon TUI
-In a new terminal, launch the TUI. Providing the Public Key is optional; the TUI will attempt to auto-discover it from `/tmp/oracle.pub`.
+In a new terminal, launch the TUI. Providing the Public Key is optional.
 ```bash
-./laplace-tui [PUBLIC_KEY_B64] < /tmp/oracle_pipe
+./laplace-tui < /tmp/oracle_pipe
 ```
 
 ### 4. Dispatch the Genesis Miracle (God CLI)
