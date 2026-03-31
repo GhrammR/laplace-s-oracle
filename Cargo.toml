@@ -1,0 +1,41 @@
+[package]
+name = "laplace-oracle"
+version = "0.1.0"
+edition = "2021"
+default-run = "laplace-oracle"
+
+[lib]
+name = "laplace_oracle"
+path = "src/lib.rs"
+
+[[bin]]
+name = "laplace-oracle"
+path = "src/main.rs"
+
+[[bin]]
+name = "laplace-tui"
+path = "src/tui.rs"
+
+[dependencies]
+bevy_ecs      = { version = "0.15", default-features = false }
+memmap2       = "0.9"
+rkyv          = { version = "0.7", features = ["validation"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+sha2          = "0.10"
+base64        = "0.22"
+rand_chacha   = "0.3"
+rand_core     = "0.6"
+rand          = { version = "0.8", default-features = false }
+rayon         = "1.11"
+hex           = "0.4"
+ratatui       = "0.29"
+crossterm     = "0.28"
+crossbeam-channel = "0.5"
+ctrlc = "3.4"
+bytemuck = { version = "1.21", features = ["derive"] }
+
+[profile.release]
+opt-level     = 3
+lto           = true
+codegen-units = 1
+panic         = "abort"

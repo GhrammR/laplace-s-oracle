@@ -1,0 +1,8 @@
+target/
+universe.db*
+miracles.db
+/tmp/oracle_pipe
+.venv/
+.DS_Store
+*.swp
+*.bak
