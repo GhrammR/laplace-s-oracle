@@ -208,6 +208,19 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        println!("Panopticon TUI: Laplace Oracle Visualization");
+        println!("");
+        println!("Usage: laplace-tui [PUBLIC_KEY_B64] [--help]");
+        println!("");
+        println!("Options:");
+        println!("  --help, -h         Print this help message");
+        println!("");
+        println!("Note: If PUBLIC_KEY_B64 is not provided, it attempts to read /tmp/oracle.pub.");
+        return Ok(());
+    }
+
     setup_panic_hook();
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -224,8 +237,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     terminal.clear()?;
 
-    let args: Vec<String> = std::env::args().collect();
-    let pk_str = if args.len() >= 2 {
+    let pk_str = if args.len() >= 2 && !args[1].starts_with('-') {
         args[1].clone()
     } else if let Ok(s) = std::fs::read_to_string("/tmp/oracle.pub") {
         s

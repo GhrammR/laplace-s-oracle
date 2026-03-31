@@ -117,7 +117,23 @@ fn main() {
     let mut x = 0u8;
     let mut y = 0u8;
 
-    for i in 0..args.len() {
+    for i in 1..args.len() {
+        if args[i] == "--help" || args[i] == "-h" {
+            println!("Laplace Oracle: Cosmological Simulation Engine");
+            println!("");
+            println!("Usage: laplace-oracle [OPTIONS]");
+            println!("");
+            println!("Options:");
+            println!("  --interval <N>     Telemetry broadcast interval (default: 1)");
+            println!("  --genesis          Initialize new universe with Genesis event");
+            println!("  --archive          Create bit-perfect snapshot of current universe");
+            println!("  --seed-hash <HEX>  Deterministic seed for simulation");
+            println!("  --species <MASK>   Taxonomic mask for Genesis");
+            println!("  --x <X>            X-coordinate for Genesis");
+            println!("  --y <Y>            Y-coordinate for Genesis");
+            println!("  --help, -h         Print this help message");
+            std::process::exit(0);
+        }
         if args[i] == "--interval" && i + 1 < args.len() {
             interval = args[i + 1].parse().unwrap_or(1);
         }
