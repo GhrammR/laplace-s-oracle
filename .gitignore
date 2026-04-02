@@ -9,3 +9,4 @@ miracles.db
 oracle_err.log
 laplace-oracle
 laplace-tui
+.artifacts/

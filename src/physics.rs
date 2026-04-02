@@ -7,9 +7,13 @@
 
 #![deny(clippy::all)]
 #![allow(clippy::manual_is_multiple_of)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::identity_op)]
+#![allow(clippy::field_reassign_with_default)]
 
 use bevy_ecs::prelude::*;
 use rayon::prelude::*;
+use sha2::{Digest, Sha256};
 
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C)]
@@ -36,7 +40,7 @@ impl Default for EnvironmentStack {
         microbiome[8] = 0x0000_0000_0001_0000;
         microbiome[9] = 0x0000_0000_0000_0100;
         microbiome[10] = 0x0000_0000_0011_1011;
-        
+
         Self {
             biomass,
             water: [0u64; 16],
@@ -71,7 +75,7 @@ pub fn memetics_system(
             // Check neighbor at (x+1, y)
             let nx = (x + 1) % 64;
             let n_idx = y * 64 + nx;
-            
+
             // Propagation condition: source has meme, destination doesn't
             if env.memetics[n_idx] == 0 {
                 // Determine if an entity is at the destination to receive it
@@ -95,26 +99,34 @@ pub fn thermodynamics_system(mut env: ResMut<EnvironmentStack>) {
 
     // 1. Parallel Temperature Spread (Fire Spread)
     // Temperature spreads to adjacent bits IF the adjacent bit has Biomass.
-    next_temp.par_iter_mut().enumerate().for_each(|(i, target_temp)| {
-        let prev_idx = (i + 15) % 16;
-        let next_idx = (i + 1) % 16;
+    next_temp
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(i, target_temp)| {
+            let prev_idx = (i + 15) % 16;
+            let next_idx = (i + 1) % 16;
 
-        let t_prev = current.temperature[prev_idx];
-        let t_curr = current.temperature[i];
-        let t_next = current.temperature[next_idx];
+            let t_prev = current.temperature[prev_idx];
+            let t_curr = current.temperature[i];
+            let t_next = current.temperature[next_idx];
 
-        let l = |x: u64| x.rotate_left(1);
-        let r = |x: u64| x.rotate_right(1);
+            let l = |x: u64| x.rotate_left(1);
+            let r = |x: u64| x.rotate_right(1);
 
-        // Combined neighborhood of temperature
-        let neighbors = l(t_prev) | t_prev | r(t_prev) |
-                        l(t_curr) |          r(t_curr) |
-                        l(t_next) | t_next | r(t_next);
+            // Combined neighborhood of temperature
+            let neighbors = l(t_prev)
+                | t_prev
+                | r(t_prev)
+                | l(t_curr)
+                | r(t_curr)
+                | l(t_next)
+                | t_next
+                | r(t_next);
 
-        // Temperature spreads only where biomass is present
-        // Also keep existing temperature (it might cool down later, but for now it's static/additive)
-        *target_temp = (t_curr | neighbors) & current.biomass[i];
-    });
+            // Temperature spreads only where biomass is present
+            // Also keep existing temperature (it might cool down later, but for now it's static/additive)
+            *target_temp = (t_curr | neighbors) & current.biomass[i];
+        });
 
     // 2. Consumption: Biomass bits are flipped to 0 if corresponding Temperature bit is 1.
     for i in 0..16 {
@@ -156,17 +168,17 @@ pub fn water_flow_step(env: &mut EnvironmentStack) {
         // 2. Lateral Flow: If supported (structure or water below), spread left/right
         let supported = s_below | w_below;
         let can_spread = w_curr & supported;
-        
+
         let l = |x: u64| x.rotate_left(1);
         let r = |x: u64| x.rotate_right(1);
-        
+
         let spread_left = l(can_spread) & !s_curr & !w_curr;
         let spread_right = r(can_spread) & !s_curr & !w_curr;
-        
+
         // Water stays if it's blocked below OR if it didn't spread (simplified for bitwise)
         // Actually, bits move, so we must be careful not to create water.
         // For lateral flow in a bitboard, we "leak" into neighbors.
-        
+
         next_water[i] |= falling_from_above | blocked_at_current | spread_left | spread_right;
     }
 
@@ -230,15 +242,18 @@ pub fn pressure_step(env: &mut EnvironmentStack) {
     let current = *env;
     let mut next_pressure = [0u64; 16];
 
-    next_pressure.par_iter_mut().enumerate().for_each(|(i, target)| {
-        let t = current.temperature[i];
-        let s = current.structure[i];
-        let gen = t & s;
-        let l = |x: u64| x.rotate_left(1);
-        let r = |x: u64| x.rotate_right(1);
-        let neighbors = l(current.pressure[i]) | r(current.pressure[i]);
-        *target = (current.pressure[i] | gen | neighbors) & 0xFFFF_FFFF_FFFF_FFFF;
-    });
+    next_pressure
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(i, target)| {
+            let t = current.temperature[i];
+            let s = current.structure[i];
+            let gen = t & s;
+            let l = |x: u64| x.rotate_left(1);
+            let r = |x: u64| x.rotate_right(1);
+            let neighbors = l(current.pressure[i]) | r(current.pressure[i]);
+            *target = current.pressure[i] | gen | neighbors;
+        });
 
     env.pressure = next_pressure;
 }
@@ -327,9 +342,9 @@ pub fn vortex_step(env: &mut EnvironmentStack) {
         let p_next = current.pressure[(i + 1) % 16];
 
         // Pattern: 0 surrounded by 1s (Eye of the storm)
-        let mask = (p_prev & p_prev.rotate_left(1) & p_prev.rotate_right(1)) &
-                   (p_curr.rotate_left(1) & p_curr.rotate_right(1) & !p_curr) &
-                   (p_next & p_next.rotate_left(1) & p_next.rotate_right(1));
+        let mask = (p_prev & p_prev.rotate_left(1) & p_prev.rotate_right(1))
+            & (p_curr.rotate_left(1) & p_curr.rotate_right(1) & !p_curr)
+            & (p_next & p_next.rotate_left(1) & p_next.rotate_right(1));
         centers[i] = mask;
     }
 
@@ -339,9 +354,9 @@ pub fn vortex_step(env: &mut EnvironmentStack) {
         let c_curr = centers[i];
         let c_next = centers[(i + 1) % 16];
 
-        let destroy_mask = (c_prev | c_prev.rotate_left(1) | c_prev.rotate_right(1)) |
-                           (c_curr | c_curr.rotate_left(1) | c_curr.rotate_right(1)) |
-                           (c_next | c_next.rotate_left(1) | c_next.rotate_right(1));
+        let destroy_mask = (c_prev | c_prev.rotate_left(1) | c_prev.rotate_right(1))
+            | (c_curr | c_curr.rotate_left(1) | c_curr.rotate_right(1))
+            | (c_next | c_next.rotate_left(1) | c_next.rotate_right(1));
 
         env.biomass[i] &= !destroy_mask;
         env.structure[i] &= !destroy_mask;
@@ -366,9 +381,14 @@ pub fn microbiome_system(mut env: ResMut<EnvironmentStack>) {
         let r = |x: u64| x.rotate_right(1);
 
         // Neighbors
-        let x1 = l(m_prev); let x2 = m_prev; let x3 = r(m_prev);
-        let x4 = l(m_curr);                  let x5 = r(m_curr);
-        let x6 = l(m_next); let x7 = m_next; let x8 = r(m_next);
+        let x1 = l(m_prev);
+        let x2 = m_prev;
+        let x3 = r(m_prev);
+        let x4 = l(m_curr);
+        let x5 = r(m_curr);
+        let x6 = l(m_next);
+        let x7 = m_next;
+        let x8 = r(m_next);
 
         // Bitwise 8-bit sum (S2 S1 S0) using cascades of full/half-adders
         let fa = |a: u64, b: u64, c: u64| {
@@ -388,8 +408,8 @@ pub fn microbiome_system(mut env: ResMut<EnvironmentStack>) {
 
         let (s0, c_d) = fa(s_a, s_b, s_c); // Plane 0 sum
         let (s_e, c_e) = fa(c_a, c_b, c_c);
-        let (s1, c_f) = ha(s_e, c_d);      // Plane 1 sum
-        let s2 = c_e ^ c_f;               // Plane 2 sum (ignore carry, max sum is 8)
+        let (s1, c_f) = ha(s_e, c_d); // Plane 1 sum
+        let s2 = c_e ^ c_f; // Plane 2 sum (ignore carry, max sum is 8)
 
         // Conway's Rules:
         // Birth (B3): dead cell with 3 neighbors.
@@ -401,6 +421,27 @@ pub fn microbiome_system(mut env: ResMut<EnvironmentStack>) {
     env.microbiome = next;
 }
 
+pub fn local_memetics_signature(
+    env: &EnvironmentStack,
+    pos: &crate::temporal::Position,
+) -> [u64; 4] {
+    let idx = pos.y as usize * 64 + pos.x as usize;
+    let local = env.memetics[idx];
+    if local == 0 {
+        return [0u64; 4];
+    }
+
+    let mut hasher = Sha256::new();
+    hasher.update(local.to_le_bytes());
+    hasher.update([pos.x, pos.y]);
+    let digest = hasher.finalize();
+    let mut words = [0u64; 4];
+    for (i, chunk) in digest.chunks_exact(8).enumerate() {
+        words[i] = u64::from_le_bytes(chunk.try_into().unwrap());
+    }
+    words
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -410,7 +451,7 @@ mod tests {
     fn test_memetic_infection() {
         let mut world = World::new();
         world.insert_resource(EnvironmentStack::default());
-        
+
         // Spawn entity A (source) at (10, 10)
         world.spawn(Position { x: 10, y: 10 });
         // Spawn entity B (receiver) at (11, 10)
@@ -440,10 +481,10 @@ mod tests {
 
         // Place water at (8,8)
         env.water[8] = 1 << 8;
-        
+
         // Step
         water_flow_step(&mut env);
-        
+
         // Assert water moves to (8,9)
         assert_eq!(env.water[9], 1 << 8);
         assert_eq!(env.water[8], 0);

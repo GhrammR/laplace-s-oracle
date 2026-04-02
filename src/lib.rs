@@ -1,13 +1,12 @@
-pub mod temporal;
-pub mod intelligence;
 pub mod biology;
-pub mod physics;
-pub mod telemetry;
-pub mod ipc;
 pub mod events;
 pub mod evolution;
+pub mod intelligence;
+pub mod ipc;
+pub mod physics;
 pub mod taxonomy_decoder;
-
+pub mod telemetry;
+pub mod temporal;
 
 use rkyv::{Archive, Serialize};
 

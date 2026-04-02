@@ -1,7 +1,9 @@
 use base64::Engine;
 use bevy_ecs::prelude::*;
 use ed25519_dalek::SigningKey;
-use laplace_oracle::{biology::Taxonomy, physics::*, intelligence::*, telemetry::*, temporal::*, ipc::*, StateVector};
+use laplace_oracle::{
+    biology::Taxonomy, intelligence::*, ipc::*, physics::*, telemetry::*, temporal::*, StateVector,
+};
 use memmap2::MmapMut;
 use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;
@@ -62,13 +64,13 @@ fn hash_update_system(
 ) {
     let mut hasher = Sha256::new();
     let slot_size = mem::size_of::<laplace_oracle::ArchivedStateVector>();
-    
+
     // Persistence: Offset 0 = Tick, Offset 8 = StateVector
     let mmap_ref = &mmap.0;
-    hasher.update(&tick.0.to_le_bytes());
-    hasher.update(&mmap_ref[8..8+slot_size]);
+    hasher.update(tick.0.to_le_bytes());
+    hasher.update(&mmap_ref[8..8 + slot_size]);
     hasher.update(rng.state_bytes());
-    
+
     // Hash EnvironmentStack (896 bytes)
     hasher.update(bytemuck::bytes_of(&env.biomass));
     hasher.update(bytemuck::bytes_of(&env.water));
@@ -77,12 +79,12 @@ fn hash_update_system(
     hasher.update(bytemuck::bytes_of(&env.particle));
     hasher.update(bytemuck::bytes_of(&env.pressure));
     hasher.update(bytemuck::bytes_of(&env.microbiome));
-    
+
     // Hash Memetics (8192 bytes)
     for word in &env.memetics {
-        hasher.update(&word.to_le_bytes());
+        hasher.update(word.to_le_bytes());
     }
-    
+
     world_hash.0 = hasher.finalize().into();
 }
 
@@ -120,9 +122,9 @@ fn main() {
     for i in 1..args.len() {
         if args[i] == "--help" || args[i] == "-h" {
             println!("Laplace Oracle: Cosmological Simulation Engine");
-            println!("");
+            println!();
             println!("Usage: laplace-oracle [OPTIONS]");
-            println!("");
+            println!();
             println!("Options:");
             println!("  --interval <N>     Telemetry broadcast interval (default: 1)");
             println!("  --genesis          Initialize new universe with Genesis event");
@@ -171,7 +173,10 @@ fn main() {
         let current_tick = u64::from_le_bytes(tick_bytes);
         let dest_filename = format!("universe.db.tick_{}", current_tick);
         std::fs::copy("universe.db", &dest_filename).expect("archive copy");
-        println!("ARCHIVED: State at tick {} saved to {}.", current_tick, dest_filename);
+        println!(
+            "ARCHIVED: State at tick {} saved to {}.",
+            current_tick, dest_filename
+        );
         std::process::exit(0);
     }
 
@@ -224,8 +229,10 @@ fn main() {
     {
         let tick = 0u64;
         db[0..8].copy_from_slice(&tick.to_le_bytes());
-        
-        let sv = StateVector { position: [0.0_f32; 3] };
+
+        let sv = StateVector {
+            position: [0.0_f32; 3],
+        };
         let bytes = rkyv::to_bytes::<_, 64>(&sv).expect("rkyv serialise");
         db[8..8 + bytes.len()].copy_from_slice(&bytes);
         db.flush_range(0, 8 + bytes.len()).expect("flush");
@@ -257,31 +264,67 @@ fn main() {
         CivIndex(0),
         SimHashBrain(0x1234_5678_90AB_CDEF),
         Taxonomy(0), // Default taxonomy
+        linguistic_sequence_from_taxonomy(Taxonomy(0)),
         Action::Idle,
     ));
 
     let mut schedule = Schedule::default();
-    schedule.configure_sets((
-        SimulationPhase::Think,
-        SimulationPhase::Leap,
-        SimulationPhase::Observation,
-    ).chain());
+    schedule.configure_sets(
+        (
+            SimulationPhase::Think,
+            SimulationPhase::Leap,
+            SimulationPhase::Observation,
+        )
+            .chain(),
+    );
 
     schedule.add_systems((
-        (genesis_listener_system, mutation_system, spatial_conflict_system, laplace_oracle::evolution::breeding_system, think_system, action_processing_system, memetics_system).chain().in_set(SimulationPhase::Think),
-
-        (hazard_system, thermodynamics_system, microbiome_system, pressure_system, wind_system, vortex_system, volcanic_eruption_system, gravity_system, water_flow_system, hydrologic_cycle_system, laplace_oracle::events::world_event_system, laplace_oracle::biology::life_system, leap_system, natural_spawning_system, miracle_grace_system, miracle_grace_cleanup_system, hash_update_system, tick_advance_system).chain().in_set(SimulationPhase::Leap),
+        (
+            genesis_listener_system,
+            mutation_system,
+            linguistic_trade_system,
+            spatial_conflict_system,
+            laplace_oracle::evolution::breeding_system,
+            think_system,
+            action_processing_system,
+            memetics_system,
+        )
+            .chain()
+            .in_set(SimulationPhase::Think),
+        (
+            hazard_system,
+            thermodynamics_system,
+            microbiome_system,
+            pressure_system,
+            wind_system,
+            vortex_system,
+            volcanic_eruption_system,
+            gravity_system,
+            water_flow_system,
+            hydrologic_cycle_system,
+            laplace_oracle::events::world_event_system,
+            laplace_oracle::biology::life_system,
+            leap_system,
+            natural_spawning_system,
+            miracle_grace_system,
+            miracle_grace_cleanup_system,
+            hash_update_system,
+            tick_advance_system,
+        )
+            .chain()
+            .in_set(SimulationPhase::Leap),
         observation_system.in_set(SimulationPhase::Observation),
     ));
 
     // 4. Infinite Simulation Loop
     ctrlc::set_handler(move || {
         RUNNING.store(false, Ordering::SeqCst);
-    }).expect("Error setting Ctrl-C handler");
+    })
+    .expect("Error setting Ctrl-C handler");
 
     while RUNNING.load(Ordering::SeqCst) {
         let tick_start = std::time::Instant::now();
-        
+
         let (paused, speed_ms) = {
             let ts = world.resource::<TemporalState>();
             (ts.paused, ts.speed_ms)
@@ -289,7 +332,7 @@ fn main() {
 
         if !paused {
             schedule.run(&mut world);
-            
+
             // Persist current tick to disk
             let current_tick = world.resource::<Tick>().0;
             let mut db_res = world.resource_mut::<MmapResource>();
@@ -299,7 +342,7 @@ fn main() {
             sub_schedule.add_systems(genesis_listener_system);
             sub_schedule.run(&mut world);
         }
-        
+
         let elapsed = tick_start.elapsed();
         let sleep_dur = std::time::Duration::from_millis(speed_ms);
         if elapsed < sleep_dur {

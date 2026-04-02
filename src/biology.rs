@@ -63,14 +63,24 @@ pub fn decode_taxonomy(mask: u64) -> String {
         0 => "Carnivora",
         1 => "Primates",
         2 => "Salmoniformes",
-        x => return format!("{} > {} > {} > Procedural Order {}", kingdom, phylum, class, x),
+        x => {
+            return format!(
+                "{} > {} > {} > Procedural Order {}",
+                kingdom, phylum, class, x
+            )
+        }
     };
 
     let family = match (mask >> 36) & 0xFFF {
         0 => "Felidae",
         1 => "Canidae",
         2 => "Hominidae",
-        x => return format!("{} > {} > {} > {} > Procedural Family {}", kingdom, phylum, class, order, x),
+        x => {
+            return format!(
+                "{} > {} > {} > {} > Procedural Family {}",
+                kingdom, phylum, class, order, x
+            )
+        }
     };
 
     let species = (mask >> 48) & 0xFFFF;
@@ -84,18 +94,12 @@ pub fn decode_taxonomy(mask: u64) -> String {
 // ── LifeSystem ───────────────────────────────────────────────────────────────
 
 /// Bevy system wrapper for life_step.
-pub fn life_system(
-    mut env_stack: ResMut<EnvironmentStack>,
-    mut env_data: ResMut<EnvironmentData>,
-) {
+pub fn life_system(mut env_stack: ResMut<EnvironmentStack>, mut env_data: ResMut<EnvironmentData>) {
     life_step(&mut env_stack, &mut env_data);
 }
 
 /// Executes a bitwise cellular automata step across the Biomass layer of EnvironmentStack.
-pub fn life_step(
-    env_stack: &mut EnvironmentStack,
-    env_data: &mut EnvironmentData,
-) {
+pub fn life_step(env_stack: &mut EnvironmentStack, env_data: &mut EnvironmentData) {
     let current = env_stack.biomass;
     let mut next = [0u64; 16];
 
@@ -110,18 +114,29 @@ pub fn life_step(
         let r = |x: u64| x.rotate_right(1);
 
         // ── Biomass Neighbors ──
-        let n1 = l(prev);  let n2 = prev;  let n3 = r(prev);
-        let n4 = l(curr);                  let n5 = r(curr);
-        let n6 = l(next_r);let n7 = next_r;let n8 = r(next_r);
+        let n1 = l(prev);
+        let n2 = prev;
+        let n3 = r(prev);
+        let n4 = l(curr);
+        let n5 = r(curr);
+        let n6 = l(next_r);
+        let n7 = next_r;
+        let n8 = r(next_r);
 
         // ── Water Proximity (Thirst Gate) ──
         let w_prev = env_stack.water[(i + 15) % 16];
         let w_curr = env_stack.water[i];
         let w_next = env_stack.water[(i + 1) % 16];
 
-        let water_3x3 = l(w_prev) | w_prev | r(w_prev) |
-                        l(w_curr) | w_curr | r(w_curr) |
-                        l(w_next) | w_next | r(w_next);
+        let water_3x3 = l(w_prev)
+            | w_prev
+            | r(w_prev)
+            | l(w_curr)
+            | w_curr
+            | r(w_curr)
+            | l(w_next)
+            | w_next
+            | r(w_next);
 
         // Bitwise parallel sum (count 8 neighbors: b2 b1 b0)
         let (s0, c0) = half_adder(n1, n2);
@@ -174,8 +189,8 @@ fn full_adder(a: u64, b: u64, c: u64) -> (u64, u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::physics::EnvironmentStack;
     use crate::intelligence::EnvironmentData;
+    use crate::physics::EnvironmentStack;
 
     #[test]
     fn test_drought_extinction() {
@@ -196,4 +211,3 @@ mod tests {
         assert_eq!(env_stack.biomass[8], 0u64);
     }
 }
-

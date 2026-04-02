@@ -4,10 +4,13 @@
 #![deny(clippy::alloc_id)]
 #![forbid(unsafe_code)]
 
+use crate::biology::Taxonomy;
+use crate::intelligence::{
+    linguistic_sequence_from_taxonomy, Action, LinguisticSequence, NewlySpawned, TechnologyMask,
+};
 use bevy_ecs::prelude::*;
 use rand::Rng;
 use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
-use crate::intelligence::{Action, TechnologyMask, NewlySpawned};
 
 // ── Persistent RNG Resource ───────────────────────────────────────────────────
 
@@ -19,7 +22,9 @@ pub struct RngResource {
 
 impl RngResource {
     pub fn from_seed(seed: [u8; 32]) -> Self {
-        Self { rng: ChaCha20Rng::from_seed(seed) }
+        Self {
+            rng: ChaCha20Rng::from_seed(seed),
+        }
     }
 
     /// 16-byte canonical serialisation of RNG word-position for world_hash.
@@ -63,11 +68,17 @@ impl GillespieTransition for TauLeap {
             .expect("RngResource must be inserted before TauLeap::step");
 
         for _ in 0..delta_years {
-            let env = *world.get_resource::<crate::physics::EnvironmentStack>()
+            let env = *world
+                .get_resource::<crate::physics::EnvironmentStack>()
                 .expect("EnvironmentStack resource missing");
 
-            let mut q =
-                world.query::<(&mut Population, &mut TechnologyMask, &mut CivIndex, &Position, &Action)>();
+            let mut q = world.query::<(
+                &mut Population,
+                &mut TechnologyMask,
+                &mut CivIndex,
+                &Position,
+                &Action,
+            )>();
 
             for (mut pop, tech, mut civ, pos, action) in q.iter_mut(world) {
                 let p = pop.0 as f32;
@@ -77,7 +88,7 @@ impl GillespieTransition for TauLeap {
                 // --- Malthusian Density Calculation ---
                 let mut b_count = 0u32;
                 let mut w_count = 0u32;
-                
+
                 let range = 1i16;
                 for dy in -range..=range {
                     let ny = (pos.y as i16 + dy).rem_euclid(16) as usize;
@@ -85,8 +96,12 @@ impl GillespieTransition for TauLeap {
                     let row_w = env.water[ny];
                     for dx in -range..=range {
                         let nx = (pos.x as i16 + dx).rem_euclid(64) as usize;
-                        if (row_b >> nx) & 1 == 1 { b_count += 1; }
-                        if (row_w >> nx) & 1 == 1 { w_count += 1; }
+                        if (row_b >> nx) & 1 == 1 {
+                            b_count += 1;
+                        }
+                        if (row_w >> nx) & 1 == 1 {
+                            w_count += 1;
+                        }
                     }
                 }
 
@@ -97,8 +112,8 @@ impl GillespieTransition for TauLeap {
                 // Reaction rates
                 let mut l_birth = (p * 0.03_f32 * (1.0_f32 + t)).min(50.0_f32);
                 let mut l_death = (p * 0.02_f32).min(50.0_f32);
-                let mut l_tech  = t * (1.0_f32 - t) * 0.5_f32;
-                let l_civ       = (p * 0.001_f32 * (1.0_f32 + t)).min(20.0_f32);
+                let mut l_tech = t * (1.0_f32 - t) * 0.5_f32;
+                let l_civ = (p * 0.001_f32 * (1.0_f32 + t)).min(20.0_f32);
 
                 // Apply substrate coupling
                 if water_density <= f32::EPSILON {
@@ -116,21 +131,21 @@ impl GillespieTransition for TauLeap {
                 }
 
                 match action {
-                    Action::Expand   => l_birth *= 1.5_f32,
-                    Action::Research => l_tech  *= 2.0_f32,
-                    Action::Defend   => l_death *= 0.5_f32,
-                    Action::Flee     => l_death *= 1.2_f32, // Stress of fleeing
-                    Action::Idle     => {},
-                    _ => {},
+                    Action::Expand => l_birth *= 1.5_f32,
+                    Action::Research => l_tech *= 2.0_f32,
+                    Action::Defend => l_death *= 0.5_f32,
+                    Action::Flee => l_death *= 1.2_f32, // Stress of fleeing
+                    Action::Idle => {}
+                    _ => {}
                 }
 
                 let births = poisson_variate(&mut rng_res.rng, l_birth);
                 let deaths = poisson_variate(&mut rng_res.rng, l_death);
                 let _tech_d = poisson_variate(&mut rng_res.rng, l_tech);
-                let civ_d  = poisson_variate(&mut rng_res.rng, l_civ);
+                let civ_d = poisson_variate(&mut rng_res.rng, l_civ);
 
-                pop.0  = pop.0.saturating_add(births).saturating_sub(deaths);
-                civ.0  = civ.0.saturating_add(civ_d);
+                pop.0 = pop.0.saturating_add(births).saturating_sub(deaths);
+                civ.0 = civ.0.saturating_add(civ_d);
             }
         }
 
@@ -177,8 +192,12 @@ pub fn natural_spawning_system(
             let x = rng.rng.gen_range(0..64);
             let y = rng.rng.gen_range(0..16);
 
+            let taxonomy = Taxonomy(crate::ipc::MICROBE);
+            let language = linguistic_sequence_from_taxonomy(taxonomy);
             commands.spawn((
                 Population(100),
+                taxonomy,
+                LinguisticSequence(language.0),
                 SimHashBrain(crate::ipc::MICROBE),
                 Position { x, y },
                 Action::Idle,

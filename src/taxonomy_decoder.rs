@@ -1,10 +1,12 @@
+#![allow(clippy::identity_op)]
+
 //! The Rosetta Stone: Decoding the biological reality of the simulation.
 //!
 //! Mandatory Bit-Slicing Contract:
 //! Kingdom (0-3), Phylum (4-11), Class (12-23), Order (24-35), Family (36-47), Genus/Species (48-63)
 
 /// Decodes a u64 taxonomic mask into a human-readable Linnaean name.
-/// 
+///
 /// This function is optimized for the hot loop using bitwise operations
 /// and non-allocating match statements where possible.
 pub fn decode_taxonomy(mask: u64) -> String {
@@ -51,7 +53,12 @@ pub fn decode_taxonomy(mask: u64) -> String {
         1 => "Felidae",
         2 => "Hominidae",
         3 => "Salmonidae",
-        x => return format!("{} > {} > {} > {} > Proc-Family-{}", kingdom, phylum, class, order, x),
+        x => {
+            return format!(
+                "{} > {} > {} > {} > Proc-Family-{}",
+                kingdom, phylum, class, order, x
+            )
+        }
     };
 
     format!(
@@ -79,19 +86,28 @@ mod tests {
                            | (1u64 << 24)  // Order
                            | (2u64 << 36)  // Family
                            | (0x1234u64 << 48); // Sp
-        
+
         let result = decode_taxonomy(human_mask);
-        assert_eq!(result, "Animalia > Chordata > Mammalia > Primates > Hominidae > Sp-1234");
+        assert_eq!(
+            result,
+            "Animalia > Chordata > Mammalia > Primates > Hominidae > Sp-1234"
+        );
 
         // Test procedural fallback for unknown order
         let unknown_order_mask: u64 = (0u64 << 0) | (0u64 << 4) | (0u64 << 12) | (99u64 << 24);
         let result_unknown = decode_taxonomy(unknown_order_mask);
-        assert_eq!(result_unknown, "Animalia > Chordata > Mammalia > Proc-Order-99");
+        assert_eq!(
+            result_unknown,
+            "Animalia > Chordata > Mammalia > Proc-Order-99"
+        );
 
         // Test another known species: Canis lupus (Wolf)
         // Animalia (0), Chordata (0), Mammalia (0), Carnivora (0), Canidae (0)
         let wolf_mask: u64 = (0u64 << 24) | (0u64 << 36) | (0xBEEFu64 << 48);
         let result_wolf = decode_taxonomy(wolf_mask);
-        assert_eq!(result_wolf, "Animalia > Chordata > Mammalia > Carnivora > Canidae > Sp-BEEF");
+        assert_eq!(
+            result_wolf,
+            "Animalia > Chordata > Mammalia > Carnivora > Canidae > Sp-BEEF"
+        );
     }
 }

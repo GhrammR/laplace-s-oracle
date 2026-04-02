@@ -7,14 +7,15 @@
 
 #![deny(clippy::all)]
 #![allow(clippy::manual_is_multiple_of)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::type_complexity)]
 
 use std::{
     error::Error,
-    io::{self, Read, Write},
-    panic,
-    thread,
-    time::{Duration, SystemTime},
     fs::OpenOptions,
+    io::{self, Read, Write},
+    panic, thread,
+    time::{Duration, SystemTime},
 };
 
 use base64::Engine;
@@ -52,6 +53,7 @@ pub struct TelemetryFrame {
     pub pop: u32,
     pub tech_mask: [u64; 4],
     pub apex_species_mask: u64,
+    pub apex_linguistic_sequence: [u64; 4],
     pub biomass: [u64; 16],
     pub water: [u64; 16],
     pub temperature: [u64; 16],
@@ -63,7 +65,7 @@ pub struct TelemetryFrame {
     pub signature: [u8; 64],
 }
 
-const FRAME_SIZE: usize = 9248;
+const FRAME_SIZE: usize = 9280;
 
 pub struct History {
     pub data: [u64; 256],
@@ -71,24 +73,42 @@ pub struct History {
 }
 
 impl History {
-    pub fn new() -> Self { Self { data: [0; 256], head: 0 } }
+    pub fn new() -> Self {
+        Self {
+            data: [0; 256],
+            head: 0,
+        }
+    }
     pub fn push(&mut self, val: u64) {
         self.data[self.head] = val;
         self.head = (self.head + 1) % 256;
     }
     pub fn values(&self) -> [u64; 256] {
         let mut v = [0u64; 256];
-        for i in 0..256 { v[i] = self.data[(self.head + i) % 256]; }
+        for i in 0..256 {
+            v[i] = self.data[(self.head + i) % 256];
+        }
         v
     }
 }
 
+impl Default for History {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
-enum InputMode { #[default] Normal, Command }
+enum InputMode {
+    #[default]
+    Normal,
+    Command,
+}
 
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 enum VisualLayer {
-    #[default] Biomass,
+    #[default]
+    Biomass,
     Water,
     Temperature,
     Structure,
@@ -96,6 +116,7 @@ enum VisualLayer {
     Pressure,
     Microbiome,
     Memetics,
+    Culture,
 }
 
 impl VisualLayer {
@@ -108,7 +129,8 @@ impl VisualLayer {
             Self::Particle => Self::Pressure,
             Self::Pressure => Self::Microbiome,
             Self::Microbiome => Self::Memetics,
-            Self::Memetics => Self::Biomass,
+            Self::Memetics => Self::Culture,
+            Self::Culture => Self::Biomass,
         }
     }
 }
@@ -124,25 +146,38 @@ struct TuiState {
     last_command_time: Option<SystemTime>,
 }
 
-enum RenderEvent { Telemetry(Box<TelemetryFrame>, bool) }
+enum RenderEvent {
+    Telemetry(Box<TelemetryFrame>, bool),
+}
 
 // ── Logic ───────────────────────────────────────────────────────────────────
 
 fn parse_and_dispatch_command(state: &mut TuiState) {
     let cmd = state.command_buffer.trim();
     let parts: Vec<&str> = cmd.split_whitespace().collect();
-    if parts.is_empty() { return; }
+    if parts.is_empty() {
+        return;
+    }
 
     let miracle = match parts[0] {
         "/genesis" => {
-            let mask = parts.get(1).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+            let mask = parts
+                .get(1)
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
             let (x, y) = if parts.len() >= 4 {
-                (parts[2].parse::<u8>().unwrap_or(state.cursor_pos.0), parts[3].parse::<u8>().unwrap_or(state.cursor_pos.1))
+                (
+                    parts[2].parse::<u8>().unwrap_or(state.cursor_pos.0),
+                    parts[3].parse::<u8>().unwrap_or(state.cursor_pos.1),
+                )
             } else {
                 state.cursor_pos
             };
             Some(MiracleCommand {
-                nonce: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64,
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
                 miracle_type: MiracleType::Genesis as u8,
                 target_x: x,
                 target_y: y,
@@ -153,7 +188,10 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
         "/fire" => {
             let radius = parts.get(1).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
             Some(MiracleCommand {
-                nonce: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64,
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
                 miracle_type: MiracleType::Fire as u8,
                 target_x: state.cursor_pos.0,
                 target_y: state.cursor_pos.1,
@@ -164,7 +202,10 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
         "/rain" => {
             let radius = parts.get(1).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
             Some(MiracleCommand {
-                nonce: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64,
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
                 miracle_type: MiracleType::Rain as u8,
                 target_x: state.cursor_pos.0,
                 target_y: state.cursor_pos.1,
@@ -175,7 +216,10 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
         "/build" => {
             let radius = parts.get(1).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
             Some(MiracleCommand {
-                nonce: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64,
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
                 miracle_type: MiracleType::Build as u8,
                 target_x: state.cursor_pos.0,
                 target_y: state.cursor_pos.1,
@@ -186,7 +230,10 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
         "/flood" => {
             let radius = parts.get(1).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
             Some(MiracleCommand {
-                nonce: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64,
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
                 miracle_type: MiracleType::Flood as u8,
                 target_x: state.cursor_pos.0,
                 target_y: state.cursor_pos.1,
@@ -197,7 +244,10 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
         "/drought" => {
             let radius = parts.get(1).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
             Some(MiracleCommand {
-                nonce: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64,
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
                 miracle_type: MiracleType::Drought as u8,
                 target_x: state.cursor_pos.0,
                 target_y: state.cursor_pos.1,
@@ -206,9 +256,15 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
             })
         }
         "/infect" => {
-            let hash = parts.get(1).and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok()).unwrap_or(0);
+            let hash = parts
+                .get(1)
+                .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+                .unwrap_or(0);
             Some(MiracleCommand {
-                nonce: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64,
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
                 miracle_type: MiracleType::Infect as u8,
                 target_x: state.cursor_pos.0,
                 target_y: state.cursor_pos.1,
@@ -217,21 +273,42 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
             })
         }
         "/pause" => Some(MiracleCommand {
-            nonce: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64,
+            nonce: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64,
             miracle_type: MiracleType::Pause as u8,
-            target_x: 0, target_y: 0, radius: 0, payload: 0,
+            target_x: 0,
+            target_y: 0,
+            radius: 0,
+            payload: 0,
         }),
         "/play" => Some(MiracleCommand {
-            nonce: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64,
+            nonce: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos() as u64,
             miracle_type: MiracleType::Play as u8,
-            target_x: 0, target_y: 0, radius: 0, payload: 0,
+            target_x: 0,
+            target_y: 0,
+            radius: 0,
+            payload: 0,
         }),
         "/speed" => {
-            let ms = parts.get(1).and_then(|s| s.parse::<u64>().ok()).unwrap_or(16);
+            let ms = parts
+                .get(1)
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(16);
             Some(MiracleCommand {
-                nonce: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_nanos() as u64,
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
                 miracle_type: MiracleType::Speed as u8,
-                target_x: 0, target_y: 0, radius: 0, payload: ms,
+                target_x: 0,
+                target_y: 0,
+                radius: 0,
+                payload: ms,
             })
         }
         _ => None,
@@ -253,12 +330,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("Panopticon TUI: Laplace Oracle Visualization");
-        println!("");
+        println!();
         println!("Usage: laplace-tui [PUBLIC_KEY_B64] [--help]");
-        println!("");
+        println!();
         println!("Options:");
         println!("  --help, -h         Print this help message");
-        println!("");
+        println!();
         println!("Note: If PUBLIC_KEY_B64 is not provided, it attempts to read /tmp/oracle.pub.");
         return Ok(());
     }
@@ -275,7 +352,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut so = io::stdout();
         let _ = execute!(so, LeaveAlternateScreen);
         std::process::exit(0);
-    }).unwrap();
+    })
+    .unwrap();
 
     terminal.clear()?;
 
@@ -300,12 +378,31 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut buf = [0u8; FRAME_SIZE];
         let sync = [0xAA, 0xBB, 0xCC, 0xDD];
         loop {
-            if stdin.read_exact(&mut buf).is_err() { break; }
+            if stdin.read_exact(&mut buf).is_err() {
+                break;
+            }
             if buf[0..4] == sync {
-                let mut hash = [0u8; 32]; hash.copy_from_slice(&buf[20..52]);
+                let mut hash = [0u8; 32];
+                hash.copy_from_slice(&buf[20..52]);
                 let mut tech = [0u64; 4];
-                for i in 0..4 { tech[i] = u64::from_le_bytes(buf[56+i*8..64+i*8].try_into().unwrap()); }
-                let (biomass, water, temperature, structure, particle, pressure, microbiome, memetics) = unpack_env(&buf);
+                for i in 0..4 {
+                    tech[i] = u64::from_le_bytes(buf[56 + i * 8..64 + i * 8].try_into().unwrap());
+                }
+                let mut apex_linguistic_sequence = [0u64; 4];
+                for i in 0..4 {
+                    apex_linguistic_sequence[i] =
+                        u64::from_le_bytes(buf[96 + i * 8..104 + i * 8].try_into().unwrap());
+                }
+                let (
+                    biomass,
+                    water,
+                    temperature,
+                    structure,
+                    particle,
+                    pressure,
+                    microbiome,
+                    memetics,
+                ) = unpack_env(&buf);
                 let frame = TelemetryFrame {
                     sync: [0xAA, 0xBB, 0xCC, 0xDD],
                     tick: u64::from_le_bytes(buf[4..12].try_into().unwrap()),
@@ -314,11 +411,23 @@ fn main() -> Result<(), Box<dyn Error>> {
                     pop: u32::from_le_bytes(buf[52..56].try_into().unwrap()),
                     tech_mask: tech,
                     apex_species_mask: u64::from_le_bytes(buf[88..96].try_into().unwrap()),
-                    biomass, water, temperature, structure, particle, pressure, microbiome, memetics,
-                    signature: buf[9184..9248].try_into().unwrap(),
+                    apex_linguistic_sequence,
+                    biomass,
+                    water,
+                    temperature,
+                    structure,
+                    particle,
+                    pressure,
+                    microbiome,
+                    memetics,
+                    signature: buf[9216..9280].try_into().unwrap(),
                 };
-                let valid = vk.verify(&buf[4..9184], &Signature::from_bytes(&frame.signature)).is_ok();
-                if valid { let _ = tx.send(RenderEvent::Telemetry(Box::new(frame), valid)); }
+                let valid = vk
+                    .verify(&buf[4..9184], &Signature::from_bytes(&frame.signature))
+                    .is_ok();
+                if valid {
+                    let _ = tx.send(RenderEvent::Telemetry(Box::new(frame), valid));
+                }
             }
         }
     });
@@ -348,7 +457,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         if event::poll(Duration::from_millis(16))? {
             if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Release { continue; }
+                if key.kind == KeyEventKind::Release {
+                    continue;
+                }
                 match state.mode {
                     InputMode::Normal => match key.code {
                         KeyCode::Char('q') => break,
@@ -359,26 +470,43 @@ fn main() -> Result<(), Box<dyn Error>> {
                                     None => Some(VisualLayer::Biomass),
                                     Some(l) => {
                                         let next = l.next();
-                                        if next == VisualLayer::Biomass { None } else { Some(next) }
+                                        if next == VisualLayer::Biomass {
+                                            None
+                                        } else {
+                                            Some(next)
+                                        }
                                     }
                                 };
                             } else {
                                 state.primary_layer = state.primary_layer.next();
                             }
                         }
-                        KeyCode::Char('h') | KeyCode::Left => state.cursor_pos.0 = state.cursor_pos.0.saturating_sub(1),
-                        KeyCode::Char('l') | KeyCode::Right => state.cursor_pos.0 = (state.cursor_pos.0 + 1).min(63),
-                        KeyCode::Char('k') | KeyCode::Up => state.cursor_pos.1 = state.cursor_pos.1.saturating_sub(1),
-                        KeyCode::Char('j') | KeyCode::Down => state.cursor_pos.1 = (state.cursor_pos.1 + 1).min(15),
+                        KeyCode::Char('h') | KeyCode::Left => {
+                            state.cursor_pos.0 = state.cursor_pos.0.saturating_sub(1)
+                        }
+                        KeyCode::Char('l') | KeyCode::Right => {
+                            state.cursor_pos.0 = (state.cursor_pos.0 + 1).min(63)
+                        }
+                        KeyCode::Char('k') | KeyCode::Up => {
+                            state.cursor_pos.1 = state.cursor_pos.1.saturating_sub(1)
+                        }
+                        KeyCode::Char('j') | KeyCode::Down => {
+                            state.cursor_pos.1 = (state.cursor_pos.1 + 1).min(15)
+                        }
                         _ => {}
                     },
                     InputMode::Command => match key.code {
                         KeyCode::Enter => parse_and_dispatch_command(&mut state),
-                        KeyCode::Esc => { state.mode = InputMode::Normal; state.command_buffer.clear(); }
+                        KeyCode::Esc => {
+                            state.mode = InputMode::Normal;
+                            state.command_buffer.clear();
+                        }
                         KeyCode::Char(c) => state.command_buffer.push(c),
-                        KeyCode::Backspace => { state.command_buffer.pop(); }
+                        KeyCode::Backspace => {
+                            state.command_buffer.pop();
+                        }
                         _ => {}
-                    }
+                    },
                 }
             }
         }
@@ -387,20 +515,40 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn unpack_env(buf: &[u8]) -> ([u64; 16], [u64; 16], [u64; 16], [u64; 16], [u64; 16], [u64; 16], [u64; 16], [u64; 1024]) {
+fn unpack_env(
+    buf: &[u8],
+) -> (
+    [u64; 16],
+    [u64; 16],
+    [u64; 16],
+    [u64; 16],
+    [u64; 16],
+    [u64; 16],
+    [u64; 16],
+    [u64; 1024],
+) {
     let mut out_bits = [[0u64; 16]; 7];
     for l in 0..7 {
         for i in 0..16 {
-            let start = 96 + l * 128 + i * 8;
-            out_bits[l][i] = u64::from_le_bytes(buf[start..start+8].try_into().unwrap());
+            let start = 128 + l * 128 + i * 8;
+            out_bits[l][i] = u64::from_le_bytes(buf[start..start + 8].try_into().unwrap());
         }
     }
     let mut out_memetics = [0u64; 1024];
     for i in 0..1024 {
         let start = 992 + i * 8;
-        out_memetics[i] = u64::from_le_bytes(buf[start..start+8].try_into().unwrap());
+        out_memetics[i] = u64::from_le_bytes(buf[start..start + 8].try_into().unwrap());
     }
-    (out_bits[0], out_bits[1], out_bits[2], out_bits[3], out_bits[4], out_bits[5], out_bits[6], out_memetics)
+    (
+        out_bits[0],
+        out_bits[1],
+        out_bits[2],
+        out_bits[3],
+        out_bits[4],
+        out_bits[5],
+        out_bits[6],
+        out_memetics,
+    )
 }
 
 fn cleanup_terminal<B: Backend + Write>(t: &mut Terminal<B>) -> io::Result<()> {
@@ -410,133 +558,216 @@ fn cleanup_terminal<B: Backend + Write>(t: &mut Terminal<B>) -> io::Result<()> {
     Ok(())
 }
 
+fn culture_bit(sequence: [u64; 4], x: usize) -> bool {
+    let motif = (sequence[0] & 0xFF) as u8;
+    ((motif >> (x % 8)) & 1) == 1
+}
+
+fn layer_bit(frame: &TelemetryFrame, layer: VisualLayer, x: usize, y: usize) -> bool {
+    match layer {
+        VisualLayer::Biomass => (frame.biomass[y] >> x) & 1 == 1,
+        VisualLayer::Water => (frame.water[y] >> x) & 1 == 1,
+        VisualLayer::Temperature => (frame.temperature[y] >> x) & 1 == 1,
+        VisualLayer::Structure => (frame.structure[y] >> x) & 1 == 1,
+        VisualLayer::Particle => (frame.particle[y] >> x) & 1 == 1,
+        VisualLayer::Pressure => (frame.pressure[y] >> x) & 1 == 1,
+        VisualLayer::Microbiome => (frame.microbiome[y] >> x) & 1 == 1,
+        VisualLayer::Memetics => frame.memetics[y * 64 + x] != 0,
+        VisualLayer::Culture => culture_bit(frame.apex_linguistic_sequence, x),
+    }
+}
+
+fn primary_glyph(frame: &TelemetryFrame, layer: VisualLayer, x: usize, y: usize) -> char {
+    match layer {
+        VisualLayer::Memetics => {
+            let hash = frame.memetics[y * 64 + x];
+            let chars = [
+                '$', '@', '&', '#', '%', '?', '!', '*', '+', '=', '^', '~', 'X', 'O', 'M',
+            ];
+            chars[(hash % chars.len() as u64) as usize]
+        }
+        VisualLayer::Culture => {
+            if culture_bit(frame.apex_linguistic_sequence, x) {
+                '#'
+            } else {
+                '.'
+            }
+        }
+        _ => '#',
+    }
+}
+
+fn reference_glyph(layer: VisualLayer) -> char {
+    match layer {
+        VisualLayer::Culture => '.',
+        _ => '+',
+    }
+}
+
+fn render_bitboard(frame: &TelemetryFrame, state: &TuiState) -> String {
+    let mut output = String::with_capacity(1024 + 16);
+    for y in 0..16 {
+        for x in 0..64 {
+            if (x as u8, y as u8) == state.cursor_pos {
+                output.push('+');
+                continue;
+            }
+
+            if layer_bit(frame, state.primary_layer, x, y) {
+                output.push(primary_glyph(frame, state.primary_layer, x, y));
+            } else if let Some(reference_layer) = state.reference_layer {
+                if layer_bit(frame, reference_layer, x, y) {
+                    output.push(reference_glyph(reference_layer));
+                } else {
+                    output.push(' ');
+                }
+            } else {
+                output.push(' ');
+            }
+        }
+        output.push('\n');
+    }
+    output
+}
+
 fn ui(f: &mut Frame, last: &Option<(TelemetryFrame, bool)>, history: &History, state: &TuiState) {
-    let chunks = Layout::default().direction(Direction::Vertical).constraints([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)]).split(f.area());
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .split(f.area());
     let (t, h, s, st) = match last {
-        Some((fr, v)) => (fr.tick, fr.world_hash, if *v { "VERIFIED" } else { "INVALID" }, if *v { Color::Green } else { Color::Red }),
+        Some((fr, v)) => (
+            fr.tick,
+            fr.world_hash,
+            if *v { "VERIFIED" } else { "INVALID" },
+            if *v { Color::Green } else { Color::Red },
+        ),
         None => (0, [0u8; 32], "WAITING", Color::Yellow),
     };
     let header = Line::from(vec![
-        Span::styled("Tick: ", Style::default().fg(Color::Gray)), Span::styled(t.to_string(), Style::default().fg(Color::White).bold()),
-        Span::raw(" | Hash: "), Span::styled(hex::encode(h), Style::default().fg(Color::White)),
-        Span::raw(" | Status: "), Span::styled(s, Style::default().fg(st).bold()),
-        Span::raw(" | Dropped: "), Span::styled(state.dropped_frames.to_string(), Style::default().fg(Color::Red)),
+        Span::styled("Tick: ", Style::default().fg(Color::Gray)),
+        Span::styled(t.to_string(), Style::default().fg(Color::White).bold()),
+        Span::raw(" | Hash: "),
+        Span::styled(hex::encode(h), Style::default().fg(Color::White)),
+        Span::raw(" | Status: "),
+        Span::styled(s, Style::default().fg(st).bold()),
+        Span::raw(" | Dropped: "),
+        Span::styled(
+            state.dropped_frames.to_string(),
+            Style::default().fg(Color::Red),
+        ),
     ]);
     f.render_widget(Paragraph::new(header).bg(Color::Black), chunks[0]);
-    let body = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Percentage(40), Constraint::Percentage(60)]).split(chunks[1]);
-    let left = Layout::default().direction(Direction::Vertical).constraints([Constraint::Percentage(50), Constraint::Percentage(50)]).split(body[0]);
-    
+    let body = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+        .split(chunks[1]);
+    let left = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(body[0]);
+
     let pop_raw = history.values();
     let mut pop_data = [(0.0, 0.0); 256];
     let (mut min, mut max) = (f64::MAX, f64::MIN);
     for (i, &v) in pop_raw.iter().enumerate() {
-        let fv = v as f64; pop_data[i] = (i as f64, fv);
-        if fv < min { min = fv; } if fv > max { max = fv; }
+        let fv = v as f64;
+        pop_data[i] = (i as f64, fv);
+        if fv < min {
+            min = fv;
+        }
+        if fv > max {
+            max = fv;
+        }
     }
-    let bounds = if (max - min).abs() < 1.0 { [min - 1.0, max + 1.0] } else { [min, max] };
-    let chart = Chart::new(vec![Dataset::default().marker(symbols::Marker::Braille).graph_type(GraphType::Line).style(Color::Cyan).data(&pop_data)])
-        .block(Block::default().title(" Population ").borders(Borders::ALL).bg(Color::Black))
-        .x_axis(Axis::default().bounds([0.0, 255.0])).y_axis(Axis::default().bounds(bounds));
+    let bounds = if (max - min).abs() < 1.0 {
+        [min - 1.0, max + 1.0]
+    } else {
+        [min, max]
+    };
+    let chart = Chart::new(vec![Dataset::default()
+        .marker(symbols::Marker::Braille)
+        .graph_type(GraphType::Line)
+        .style(Color::Cyan)
+        .data(&pop_data)])
+    .block(
+        Block::default()
+            .title(" Population ")
+            .borders(Borders::ALL)
+            .bg(Color::Black),
+    )
+    .x_axis(Axis::default().bounds([0.0, 255.0]))
+    .y_axis(Axis::default().bounds(bounds));
     f.render_widget(chart, left[0]);
 
-    let apex = match last { Some((fr, _)) => decode_taxonomy(fr.apex_species_mask), None => "...".into() };
-    f.render_widget(Paragraph::new(apex).wrap(ratatui::widgets::Wrap { trim: false }).block(Block::default().title(" Apex Species ").borders(Borders::ALL).bg(Color::Black)), left[1]);
+    let apex = match last {
+        Some((fr, _)) => decode_taxonomy(fr.apex_species_mask),
+        None => "...".into(),
+    };
+    f.render_widget(
+        Paragraph::new(apex)
+            .wrap(ratatui::widgets::Wrap { trim: false })
+            .block(
+                Block::default()
+                    .title(" Apex Species ")
+                    .borders(Borders::ALL)
+                    .bg(Color::Black),
+            ),
+        left[1],
+    );
 
     let bb = match last {
-        Some((fr, _)) => {
-            let mut s = String::with_capacity(1024 + 16);
-            let p_layer = state.primary_layer;
-            let r_layer = state.reference_layer;
-
-            for y in 0..16 {
-                for x in 0..64 {
-                    if (x as u8, y as u8) == state.cursor_pos {
-                        s.push('+');
-                        continue;
-                    }
-
-                    let p_bit = if p_layer == VisualLayer::Memetics {
-                        fr.memetics[y * 64 + x] != 0
-                    } else {
-                        let l = match p_layer {
-                            VisualLayer::Biomass => fr.biomass,
-                            VisualLayer::Water => fr.water,
-                            VisualLayer::Temperature => fr.temperature,
-                            VisualLayer::Structure => fr.structure,
-                            VisualLayer::Particle => fr.particle,
-                            VisualLayer::Pressure => fr.pressure,
-                            VisualLayer::Microbiome => fr.microbiome,
-                            _ => [0u64; 16],
-                        };
-                        (l[y] >> x) & 1 == 1
-                    };
-
-                    if p_bit {
-                        if p_layer == VisualLayer::Memetics {
-                            let hash = fr.memetics[y * 64 + x];
-                            let chars = ['$', '@', '&', '#', '%', '?', '!', '*', '¤', '§', '¶', 'Δ', 'Ω', 'Ψ', 'Φ'];
-                            let idx = (hash % chars.len() as u64) as usize;
-                            s.push(chars[idx]);
-                        } else {
-                            s.push('█');
-                        }
-                    } else if let Some(ref_l) = r_layer {
-                        let r_bit = if ref_l == VisualLayer::Memetics {
-                            fr.memetics[y * 64 + x] != 0
-                        } else {
-                            let l = match ref_l {
-                                VisualLayer::Biomass => fr.biomass,
-                                VisualLayer::Water => fr.water,
-                                VisualLayer::Temperature => fr.temperature,
-                                VisualLayer::Structure => fr.structure,
-                                VisualLayer::Particle => fr.particle,
-                                VisualLayer::Pressure => fr.pressure,
-                                VisualLayer::Microbiome => fr.microbiome,
-                                _ => [0u64; 16],
-                            };
-                            (l[y] >> x) & 1 == 1
-                        };
-                        if r_bit {
-                            s.push('░');
-                        } else {
-                            s.push(' ');
-                        }
-                    } else {
-                        s.push(' ');
-                    }
-                }
-                s.push('\n');
-            }
-            s
-        }
-        None => "...".into()
+        Some((fr, _)) => render_bitboard(fr, state),
+        None => "...".into(),
     };
     let title = if let Some(rl) = state.reference_layer {
         format!(" Bitboard [{:?} / {:?}] ", state.primary_layer, rl)
     } else {
         format!(" Bitboard [{:?}] ", state.primary_layer)
     };
-    f.render_widget(Paragraph::new(bb).block(Block::default().title(title).borders(Borders::ALL).bg(Color::Black)), body[1]);
+    f.render_widget(
+        Paragraph::new(bb).block(
+            Block::default()
+                .title(title)
+                .borders(Borders::ALL)
+                .bg(Color::Black),
+        ),
+        body[1],
+    );
 
-    let coords = format!(" CURSOR: ({:02}, {:02}) ", state.cursor_pos.0, state.cursor_pos.1);
+    let coords = format!(
+        " CURSOR: ({:02}, {:02}) ",
+        state.cursor_pos.0, state.cursor_pos.1
+    );
     let bar = match state.mode {
         InputMode::Normal => Line::from(vec![
             Span::styled("-- NORMAL -- ", Style::default().fg(Color::Yellow).bold()),
             Span::styled(coords, Style::default().fg(Color::Cyan)),
-            Span::styled("(Press ':')", Style::default().fg(Color::Gray))
+            Span::styled("(Press ':')", Style::default().fg(Color::Gray)),
         ]),
         InputMode::Command => Line::from(vec![
             Span::styled(":", Style::default().fg(Color::White).bold()),
-            Span::raw(&state.command_buffer)
+            Span::raw(&state.command_buffer),
         ]),
     };
-    
+
     // Command Acknowledgement overlay
     let bar = if let Some(last_time) = state.last_command_time {
-        if last_time.elapsed().map(|e| e.as_secs_f32() < 1.0).unwrap_or(false) {
+        if last_time
+            .elapsed()
+            .map(|e| e.as_secs_f32() < 1.0)
+            .unwrap_or(false)
+        {
             let mut spans = bar.spans.clone();
             spans.push(Span::styled(" | ", Style::default().fg(Color::Gray)));
-            spans.push(Span::styled("COMMAND ACKNOWLEDGED", Style::default().fg(Color::Green).bold()));
+            spans.push(Span::styled(
+                "COMMAND ACKNOWLEDGED",
+                Style::default().fg(Color::Green).bold(),
+            ));
             Line::from(spans)
         } else {
             bar

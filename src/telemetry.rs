@@ -1,29 +1,28 @@
 //! Verifiable Telemetry Pipeline for the Laplace Oracle.
 //!
-//! BINARY PROTOCOL SPECIFICATION (276 bytes total):
+//! BINARY PROTOCOL SPECIFICATION (9280 bytes total):
 //! 00-03: [u8; 4] (Sync: 0xAA, 0xBB, 0xCC, 0xDD)
 //! 04-11: u64 (Tick)
-//! 12-43: [u8; 32] (WorldHash)
-//! 44-47: u32 (Population)
-//! 48-79: [u64; 4] (TechnologyMask)
-//! 80-83: u32 (CivIndex)
-//! 84-595: [u64; 64] (EnvironmentStack)
-//! 212-275: [u8; 64] (Ed25519 Signature)
+//! 12-19: u64 (LastTick)
+//! 20-51: [u8; 32] (WorldHash)
+//! 52-55: u32 (Population)
+//! 56-87: [u64; 4] (TechnologyMask)
+//! 88-95: u64 (Apex Species Brain Mask)
+//! 96-127: [u64; 4] (Apex Linguistic Sequence)
+//! 128-9215: EnvironmentStack payload
+//! 9216-9279: [u8; 64] (Ed25519 Signature)
 
 #![allow(unknown_lints)]
 #![deny(clippy::all)]
 #![forbid(unsafe_code)]
 
+use crate::intelligence::{LinguisticSequence, SimHashBrain, TechnologyMask};
 use crate::physics::EnvironmentStack;
 use crate::temporal::Population;
-use crate::intelligence::{SimHashBrain, TechnologyMask};
 use bevy_ecs::prelude::*;
-use ed25519_dalek::{SigningKey, Signer};
+use ed25519_dalek::{Signer, SigningKey};
 use std::io::Write;
 
-// ── Telemetry Frame ──────────────────────────────────────────────────────────
-
-/// 800-byte Hardened Telemetry Frame.
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct TelemetryFrame {
@@ -34,18 +33,18 @@ pub struct TelemetryFrame {
     pub pop: u32,
     pub tech_mask: [u64; 4],
     pub apex_species_mask: u64,
+    pub apex_linguistic_sequence: [u64; 4],
     pub stack: EnvironmentStack,
     pub signature: [u8; 64],
 }
 
 pub const SYNC_HEADER: [u8; 4] = [0xAA, 0xBB, 0xCC, 0xDD];
-pub const PAYLOAD_SIZE: usize = 9180; // Frame without sync and signature
-pub const FRAME_SIZE: usize = 9248;   // Total transmission size
+pub const PAYLOAD_SIZE: usize = 9212;
+pub const FRAME_SIZE: usize = 9280;
 
 impl TelemetryFrame {
-    /// Manual serialization to ensure strict byte alignment and zero-copy stability.
-    pub fn as_bytes(&self) -> [u8; 9248] {
-        let mut buf = [0u8; 9248];
+    pub fn as_bytes(&self) -> [u8; FRAME_SIZE] {
+        let mut buf = [0u8; FRAME_SIZE];
         buf[0..4].copy_from_slice(&self.sync);
         buf[4..12].copy_from_slice(&self.tick.to_le_bytes());
         buf[12..20].copy_from_slice(&self.last_tick.to_le_bytes());
@@ -54,36 +53,40 @@ impl TelemetryFrame {
 
         for i in 0..4 {
             let start = 56 + (i * 8);
-            buf[start..start+8].copy_from_slice(&self.tech_mask[i].to_le_bytes());
+            buf[start..start + 8].copy_from_slice(&self.tech_mask[i].to_le_bytes());
         }
 
         buf[88..96].copy_from_slice(&self.apex_species_mask.to_le_bytes());
+        for i in 0..4 {
+            let start = 96 + (i * 8);
+            buf[start..start + 8].copy_from_slice(&self.apex_linguistic_sequence[i].to_le_bytes());
+        }
 
-        // EnvironmentStack manual packing
-        // Layers 0-6: [u64; 16] (896 bytes)
         for i in 0..16 {
-            buf[96 + i*8..96 + (i+1)*8].copy_from_slice(&self.stack.biomass[i].to_le_bytes());
-            buf[224 + i*8..224 + (i+1)*8].copy_from_slice(&self.stack.water[i].to_le_bytes());
-            buf[352 + i*8..352 + (i+1)*8].copy_from_slice(&self.stack.temperature[i].to_le_bytes());
-            buf[480 + i*8..480 + (i+1)*8].copy_from_slice(&self.stack.structure[i].to_le_bytes());
-            buf[608 + i*8..608 + (i+1)*8].copy_from_slice(&self.stack.particle[i].to_le_bytes());
-            buf[736 + i*8..736 + (i+1)*8].copy_from_slice(&self.stack.pressure[i].to_le_bytes());
-            buf[864 + i*8..864 + (i+1)*8].copy_from_slice(&self.stack.microbiome[i].to_le_bytes());
+            buf[128 + i * 8..128 + (i + 1) * 8]
+                .copy_from_slice(&self.stack.biomass[i].to_le_bytes());
+            buf[256 + i * 8..256 + (i + 1) * 8].copy_from_slice(&self.stack.water[i].to_le_bytes());
+            buf[384 + i * 8..384 + (i + 1) * 8]
+                .copy_from_slice(&self.stack.temperature[i].to_le_bytes());
+            buf[512 + i * 8..512 + (i + 1) * 8]
+                .copy_from_slice(&self.stack.structure[i].to_le_bytes());
+            buf[640 + i * 8..640 + (i + 1) * 8]
+                .copy_from_slice(&self.stack.particle[i].to_le_bytes());
+            buf[768 + i * 8..768 + (i + 1) * 8]
+                .copy_from_slice(&self.stack.pressure[i].to_le_bytes());
+            buf[896 + i * 8..896 + (i + 1) * 8]
+                .copy_from_slice(&self.stack.microbiome[i].to_le_bytes());
         }
 
-        // Layer 7: Memetics [u64; 1024] (8192 bytes)
         for i in 0..1024 {
-            let start = 992 + i * 8;
-            buf[start..start+8].copy_from_slice(&self.stack.memetics[i].to_le_bytes());
+            let start = 1024 + i * 8;
+            buf[start..start + 8].copy_from_slice(&self.stack.memetics[i].to_le_bytes());
         }
 
-        // Signature (starts at 992 + 8192 = 9184)
-        buf[9184..9248].copy_from_slice(&self.signature);
+        buf[9216..9280].copy_from_slice(&self.signature);
         buf
     }
 }
-
-// ── Resources ────────────────────────────────────────────────────────────────
 
 #[derive(Resource, Default, Clone, Copy)]
 pub struct LastTick(pub u64);
@@ -106,9 +109,6 @@ pub struct WorldHash(pub [u8; 32]);
 #[derive(Resource)]
 pub struct StdoutResource(pub std::io::Stdout);
 
-// ── Observation System ───────────────────────────────────────────────────────
-
-/// System that packs and signs the current world state, emitting it as binary.
 #[allow(clippy::too_many_arguments)]
 pub fn observation_system(
     tick: Res<Tick>,
@@ -119,21 +119,27 @@ pub fn observation_system(
     signing_key: Res<SigningKeyResource>,
     hash: Res<WorldHash>,
     stack: Res<EnvironmentStack>,
-    q: Query<(&Population, &SimHashBrain, &TechnologyMask)>,
+    q: Query<(
+        &Population,
+        &SimHashBrain,
+        &TechnologyMask,
+        &LinguisticSequence,
+    )>,
 ) {
-    if tick.0 % interval.0 != 0 {
+    if !tick.0.is_multiple_of(interval.0) {
         return;
     }
 
     let mut apex_pop = 0;
     let mut apex_mask = 0;
+    let mut apex_linguistic_sequence = [0u64; 4];
     let mut tech_mask_sum = [0u64; 4];
 
-    // Find the single entity with the highest population (the "Apex Species")
-    for (p, brain, t) in q.iter() {
+    for (p, brain, t, sequence) in q.iter() {
         if p.0 > apex_pop {
             apex_pop = p.0;
             apex_mask = brain.0;
+            apex_linguistic_sequence = sequence.0;
         }
         tech_mask_sum[0] |= t.0[0];
         tech_mask_sum[1] |= t.0[1];
@@ -149,20 +155,16 @@ pub fn observation_system(
         pop: apex_pop,
         tech_mask: tech_mask_sum,
         apex_species_mask: apex_mask,
+        apex_linguistic_sequence,
         stack: *stack,
         signature: [0u8; 64],
     };
 
-    // Sign the payload (everything between sync and signature)
     let buffer_tmp = frame.as_bytes();
-    let data_to_sign = &buffer_tmp[4..9184];
-
-    let sig_bytes = signing_key.0.sign(data_to_sign).to_bytes();
-    frame.signature = sig_bytes;
+    let data_to_sign = &buffer_tmp[4..9216];
+    frame.signature = signing_key.0.sign(data_to_sign).to_bytes();
 
     let final_buffer = frame.as_bytes();
-
-    // 3. Emit binary (Atomic write_all)
     let mut stdout = stdout_res.0.lock();
     if stdout.write_all(&final_buffer).is_ok() {
         let _ = stdout.flush();

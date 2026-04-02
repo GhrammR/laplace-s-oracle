@@ -1,11 +1,15 @@
 //! Miracle IPC Substrate for the Laplace Oracle.
 #![forbid(unsafe_code)]
+#![allow(clippy::suspicious_open_options)]
 
 use crate::biology::Taxonomy;
-use bevy_ecs::prelude::*;
+use crate::intelligence::{
+    linguistic_sequence_from_taxonomy, LinguisticSequence, NewlySpawned, SimHashBrain,
+    TechnologyMask,
+};
 use crate::physics::EnvironmentStack;
-use crate::intelligence::{SimHashBrain, TechnologyMask, NewlySpawned};
 use crate::temporal::{Population, Position};
+use bevy_ecs::prelude::*;
 use memmap2::MmapMut;
 
 // ── Species Masks ────────────────────────────────────────────────────────────
@@ -86,7 +90,14 @@ impl MiracleCommand {
         let target_y = bytes[10];
         let radius = bytes[11];
         let payload = u64::from_le_bytes(bytes[12..20].try_into().unwrap());
-        Self { nonce, miracle_type, target_x, target_y, radius, payload }
+        Self {
+            nonce,
+            miracle_type,
+            target_x,
+            target_y,
+            radius,
+            payload,
+        }
     }
 }
 
@@ -106,7 +117,10 @@ pub struct TemporalState {
 
 impl Default for TemporalState {
     fn default() -> Self {
-        Self { paused: false, speed_ms: 16 }
+        Self {
+            paused: false,
+            speed_ms: 16,
+        }
     }
 }
 
@@ -134,11 +148,17 @@ pub fn genesis_listener_system(
             MiracleType::Genesis => {
                 let max_index = query.iter().map(|c| c.0).max().unwrap_or(0);
                 let next_id = max_index + 1;
-                let pos = Position { x: cmd.target_x % 64, y: cmd.target_y % 16 };
+                let pos = Position {
+                    x: cmd.target_x % 64,
+                    y: cmd.target_y % 16,
+                };
+                let taxonomy = Taxonomy(cmd.payload);
+                let linguistic_sequence = linguistic_sequence_from_taxonomy(taxonomy);
                 for _ in 0..100 {
                     commands.spawn((
                         Population(100),
-                        Taxonomy(cmd.payload),
+                        taxonomy,
+                        LinguisticSequence(linguistic_sequence.0),
                         SimHashBrain(HUMANOID),
                         pos,
                         crate::intelligence::Action::Idle,
@@ -202,7 +222,7 @@ pub fn genesis_listener_system(
             }
             MiracleType::Pause => temp_state.paused = true,
             MiracleType::Play => temp_state.paused = false,
-            MiracleType::Speed => temp_state.speed_ms = cmd.payload.max(1).min(1000),
+            MiracleType::Speed => temp_state.speed_ms = cmd.payload.clamp(1, 1000),
             MiracleType::Flood => {
                 let tx = cmd.target_x as i16;
                 let ty = cmd.target_y as i16;
