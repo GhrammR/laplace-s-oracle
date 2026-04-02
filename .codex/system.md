@@ -38,3 +38,6 @@ Avoid replacing short, common symbols (like `?`, `-`, `;`) globally. Use unique 
 
 7. The After-Action Report (AAR)
 Upon completing any architectural phase or release, you MUST output a detailed Markdown summary. This summary must include: Files Modified, Exact Byte-Size changes to TelemetryFrame, a brief explanation of the Bitwise/Mathematical logic implemented, and the GitHub Release URL.
+
+8. The Innovation Log
+After every successful /release or phase completion, you MUST generate or append to 'INNOVATION_LOG.md' in the project root. This log must contain 1-3 highly specific, bitwise-compliant suggestions for improving the code you just touched, or hypotheses for new emergent behaviors that could be unlocked based on the current architecture. You must link to this log in your final output summary.

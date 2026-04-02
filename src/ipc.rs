@@ -45,6 +45,16 @@ pub enum MiracleType {
     Speed = 7,
     Flood = 8,
     Drought = 9,
+    LogicSet = 10,
+    LogicClear = 11,
+    LightSet = 12,
+    Eclipse = 13,
+    MemeticsSet = 14,
+    MemeticsClear = 15,
+    PressureSet = 16,
+    TerrainRaise = 17,
+    TerrainLower = 18,
+    Excavate = 19,
 }
 
 impl From<u8> for MiracleType {
@@ -59,6 +69,16 @@ impl From<u8> for MiracleType {
             7 => Self::Speed,
             8 => Self::Flood,
             9 => Self::Drought,
+            10 => Self::LogicSet,
+            11 => Self::LogicClear,
+            12 => Self::LightSet,
+            13 => Self::Eclipse,
+            14 => Self::MemeticsSet,
+            15 => Self::MemeticsClear,
+            16 => Self::PressureSet,
+            17 => Self::TerrainRaise,
+            18 => Self::TerrainLower,
+            19 => Self::Excavate,
             _ => Self::Genesis,
         }
     }
@@ -292,6 +312,128 @@ pub fn genesis_listener_system(
                         let x = (tx + dx).rem_euclid(64) as usize;
                         let y = (ty + dy).rem_euclid(16) as usize;
                         env.water[y] &= !(1 << x);
+                    }
+                }
+            }
+            MiracleType::LogicSet => {
+                let tx = cmd.target_x as i16;
+                let ty = cmd.target_y as i16;
+                let r = cmd.radius as i16;
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let x = (tx + dx).rem_euclid(64) as usize;
+                        let y = (ty + dy).rem_euclid(16) as usize;
+                        env.logic[y] |= 1 << x;
+                    }
+                }
+            }
+            MiracleType::LogicClear => {
+                let tx = cmd.target_x as i16;
+                let ty = cmd.target_y as i16;
+                let r = cmd.radius as i16;
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let x = (tx + dx).rem_euclid(64) as usize;
+                        let y = (ty + dy).rem_euclid(16) as usize;
+                        env.logic[y] &= !(1 << x);
+                    }
+                }
+            }
+            MiracleType::LightSet => {
+                let tx = cmd.target_x as i16;
+                let ty = cmd.target_y as i16;
+                let r = cmd.radius as i16;
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let x = (tx + dx).rem_euclid(64) as usize;
+                        let y = (ty + dy).rem_euclid(16) as usize;
+                        env.light[y] |= 1 << x;
+                    }
+                }
+            }
+            MiracleType::Eclipse => {
+                let tx = cmd.target_x as i16;
+                let ty = cmd.target_y as i16;
+                let r = cmd.radius as i16;
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let x = (tx + dx).rem_euclid(64) as usize;
+                        let y = (ty + dy).rem_euclid(16) as usize;
+                        env.light[y] &= !(1 << x);
+                    }
+                }
+            }
+            MiracleType::MemeticsSet => {
+                let tx = cmd.target_x as i16;
+                let ty = cmd.target_y as i16;
+                let r = cmd.radius as i16;
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let x = (tx + dx).rem_euclid(64) as usize;
+                        let y = (ty + dy).rem_euclid(16) as usize;
+                        env.memetics[y * 64 + x] = cmd.payload;
+                    }
+                }
+            }
+            MiracleType::MemeticsClear => {
+                let tx = cmd.target_x as i16;
+                let ty = cmd.target_y as i16;
+                let r = cmd.radius as i16;
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let x = (tx + dx).rem_euclid(64) as usize;
+                        let y = (ty + dy).rem_euclid(16) as usize;
+                        env.memetics[y * 64 + x] = 0;
+                    }
+                }
+            }
+            MiracleType::PressureSet => {
+                let tx = cmd.target_x as i16;
+                let ty = cmd.target_y as i16;
+                let r = cmd.radius as i16;
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let x = (tx + dx).rem_euclid(64) as usize;
+                        let y = (ty + dy).rem_euclid(16) as usize;
+                        env.pressure[y] |= 1 << x;
+                    }
+                }
+            }
+            MiracleType::TerrainRaise => {
+                let tx = cmd.target_x as i16;
+                let ty = cmd.target_y as i16;
+                let r = cmd.radius as i16;
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let x = (tx + dx).rem_euclid(64) as usize;
+                        let y = (ty + dy).rem_euclid(16) as usize;
+                        let idx = y * 64 + x;
+                        env.elevation[idx] = env.elevation[idx].saturating_add(1);
+                    }
+                }
+            }
+            MiracleType::TerrainLower => {
+                let tx = cmd.target_x as i16;
+                let ty = cmd.target_y as i16;
+                let r = cmd.radius as i16;
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let x = (tx + dx).rem_euclid(64) as usize;
+                        let y = (ty + dy).rem_euclid(16) as usize;
+                        let idx = y * 64 + x;
+                        env.elevation[idx] = env.elevation[idx].saturating_sub(1);
+                    }
+                }
+            }
+            MiracleType::Excavate => {
+                let tx = cmd.target_x as i16;
+                let ty = cmd.target_y as i16;
+                let r = cmd.radius as i16;
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let x = (tx + dx).rem_euclid(64) as usize;
+                        let y = (ty + dy).rem_euclid(16) as usize;
+                        env.structure[y] &= !(1 << x);
                     }
                 }
             }

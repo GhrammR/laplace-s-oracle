@@ -3,6 +3,11 @@
 ## Unreleased
 - Pending changes.
 
+## v0.10.0 - 2026-04-02
+- Expanded the miracle bridge with direct operator control over logic, light, memetics, pressure, elevation, and structure excavation.
+- Added matching Panopticon slash commands so the God-Lens can manipulate existing substrate layers without external file edits.
+- Introduced an innovation log requirement and seeded the first post-release R&D hypotheses for the new tooling surface.
+
 ## v0.9.0 - 2026-04-01
 - Added the God-Mode API socket at `/tmp/oracle_api.sock` with non-blocking ingress that reuses the existing miracle memory map transaction path.
 - Bound and cleaned the API socket during Oracle startup and shutdown to avoid stale-address failures.

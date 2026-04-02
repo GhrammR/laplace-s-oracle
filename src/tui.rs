@@ -181,14 +181,13 @@ enum RenderEvent {
 
 // Logic
 
-fn parse_and_dispatch_command(state: &mut TuiState) {
-    let cmd = state.command_buffer.trim();
+fn parse_miracle_command(cmd: &str, cursor_pos: (u8, u8)) -> Option<MiracleCommand> {
     let parts: Vec<&str> = cmd.split_whitespace().collect();
     if parts.is_empty() {
-        return;
+        return None;
     }
 
-    let miracle = match parts[0] {
+    match parts[0] {
         "/genesis" => {
             let mask = parts
                 .get(1)
@@ -196,11 +195,11 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
                 .unwrap_or(0);
             let (x, y) = if parts.len() >= 4 {
                 (
-                    parts[2].parse::<u8>().unwrap_or(state.cursor_pos.0),
-                    parts[3].parse::<u8>().unwrap_or(state.cursor_pos.1),
+                    parts[2].parse::<u8>().unwrap_or(cursor_pos.0),
+                    parts[3].parse::<u8>().unwrap_or(cursor_pos.1),
                 )
             } else {
-                state.cursor_pos
+                cursor_pos
             };
             Some(MiracleCommand {
                 nonce: SystemTime::now()
@@ -222,8 +221,8 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
                     .unwrap()
                     .as_nanos() as u64,
                 miracle_type: MiracleType::Fire as u8,
-                target_x: state.cursor_pos.0,
-                target_y: state.cursor_pos.1,
+                target_x: cursor_pos.0,
+                target_y: cursor_pos.1,
                 radius,
                 payload: 0,
             })
@@ -236,8 +235,8 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
                     .unwrap()
                     .as_nanos() as u64,
                 miracle_type: MiracleType::Rain as u8,
-                target_x: state.cursor_pos.0,
-                target_y: state.cursor_pos.1,
+                target_x: cursor_pos.0,
+                target_y: cursor_pos.1,
                 radius,
                 payload: 0,
             })
@@ -250,8 +249,8 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
                     .unwrap()
                     .as_nanos() as u64,
                 miracle_type: MiracleType::Build as u8,
-                target_x: state.cursor_pos.0,
-                target_y: state.cursor_pos.1,
+                target_x: cursor_pos.0,
+                target_y: cursor_pos.1,
                 radius,
                 payload: 0,
             })
@@ -264,8 +263,8 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
                     .unwrap()
                     .as_nanos() as u64,
                 miracle_type: MiracleType::Flood as u8,
-                target_x: state.cursor_pos.0,
-                target_y: state.cursor_pos.1,
+                target_x: cursor_pos.0,
+                target_y: cursor_pos.1,
                 radius,
                 payload: 0,
             })
@@ -278,8 +277,8 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
                     .unwrap()
                     .as_nanos() as u64,
                 miracle_type: MiracleType::Drought as u8,
-                target_x: state.cursor_pos.0,
-                target_y: state.cursor_pos.1,
+                target_x: cursor_pos.0,
+                target_y: cursor_pos.1,
                 radius,
                 payload: 0,
             })
@@ -295,10 +294,154 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
                     .unwrap()
                     .as_nanos() as u64,
                 miracle_type: MiracleType::Infect as u8,
-                target_x: state.cursor_pos.0,
-                target_y: state.cursor_pos.1,
+                target_x: cursor_pos.0,
+                target_y: cursor_pos.1,
                 radius: 1,
                 payload: hash,
+            })
+        }
+        "/logic-set" => {
+            let radius = parts.get(1).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
+            Some(MiracleCommand {
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
+                miracle_type: MiracleType::LogicSet as u8,
+                target_x: cursor_pos.0,
+                target_y: cursor_pos.1,
+                radius,
+                payload: 0,
+            })
+        }
+        "/logic-clear" => {
+            let radius = parts.get(1).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
+            Some(MiracleCommand {
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
+                miracle_type: MiracleType::LogicClear as u8,
+                target_x: cursor_pos.0,
+                target_y: cursor_pos.1,
+                radius,
+                payload: 0,
+            })
+        }
+        "/light-set" => {
+            let radius = parts.get(1).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
+            Some(MiracleCommand {
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
+                miracle_type: MiracleType::LightSet as u8,
+                target_x: cursor_pos.0,
+                target_y: cursor_pos.1,
+                radius,
+                payload: 0,
+            })
+        }
+        "/eclipse" => {
+            let radius = parts.get(1).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
+            Some(MiracleCommand {
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
+                miracle_type: MiracleType::Eclipse as u8,
+                target_x: cursor_pos.0,
+                target_y: cursor_pos.1,
+                radius,
+                payload: 0,
+            })
+        }
+        "/memetics-set" => {
+            let hash = parts
+                .get(1)
+                .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+                .unwrap_or(0);
+            let radius = parts.get(2).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
+            Some(MiracleCommand {
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
+                miracle_type: MiracleType::MemeticsSet as u8,
+                target_x: cursor_pos.0,
+                target_y: cursor_pos.1,
+                radius,
+                payload: hash,
+            })
+        }
+        "/memetics-clear" => {
+            let radius = parts.get(1).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
+            Some(MiracleCommand {
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
+                miracle_type: MiracleType::MemeticsClear as u8,
+                target_x: cursor_pos.0,
+                target_y: cursor_pos.1,
+                radius,
+                payload: 0,
+            })
+        }
+        "/pressure-set" => {
+            let radius = parts.get(1).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
+            Some(MiracleCommand {
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
+                miracle_type: MiracleType::PressureSet as u8,
+                target_x: cursor_pos.0,
+                target_y: cursor_pos.1,
+                radius,
+                payload: 0,
+            })
+        }
+        "/terrain-raise" => {
+            let radius = parts.get(1).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
+            Some(MiracleCommand {
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
+                miracle_type: MiracleType::TerrainRaise as u8,
+                target_x: cursor_pos.0,
+                target_y: cursor_pos.1,
+                radius,
+                payload: 0,
+            })
+        }
+        "/terrain-lower" => {
+            let radius = parts.get(1).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
+            Some(MiracleCommand {
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
+                miracle_type: MiracleType::TerrainLower as u8,
+                target_x: cursor_pos.0,
+                target_y: cursor_pos.1,
+                radius,
+                payload: 0,
+            })
+        }
+        "/excavate" => {
+            let radius = parts.get(1).and_then(|s| s.parse::<u8>().ok()).unwrap_or(1);
+            Some(MiracleCommand {
+                nonce: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos() as u64,
+                miracle_type: MiracleType::Excavate as u8,
+                target_x: cursor_pos.0,
+                target_y: cursor_pos.1,
+                radius,
+                payload: 0,
             })
         }
         "/pause" => Some(MiracleCommand {
@@ -341,7 +484,13 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
             })
         }
         _ => None,
-    };
+    }
+}
+
+fn parse_and_dispatch_command(state: &mut TuiState) {
+    let cmd = state.command_buffer.trim();
+
+    let miracle = parse_miracle_command(cmd, state.cursor_pos);
 
     if let Some(m) = miracle {
         if let Ok(mut f) = OpenOptions::new().write(true).open("miracles.db") {
@@ -354,7 +503,6 @@ fn parse_and_dispatch_command(state: &mut TuiState) {
     state.command_buffer.clear();
     state.mode = InputMode::Normal;
 }
-
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
@@ -986,5 +1134,53 @@ mod tests {
         parse_and_dispatch_command(&mut state);
         assert_eq!(state.mode, InputMode::Normal);
         assert!(state.command_buffer.is_empty());
+    }
+
+    #[test]
+    fn test_parse_logic_set_command() {
+        let cmd = parse_miracle_command("/logic-set 3", (12, 6)).unwrap();
+        let miracle_type = cmd.miracle_type;
+        let target_x = cmd.target_x;
+        let target_y = cmd.target_y;
+        let radius = cmd.radius;
+        let payload = cmd.payload;
+        assert_eq!(miracle_type, MiracleType::LogicSet as u8);
+        assert_eq!(target_x, 12);
+        assert_eq!(target_y, 6);
+        assert_eq!(radius, 3);
+        assert_eq!(payload, 0);
+    }
+
+    #[test]
+    fn test_parse_memetics_set_command() {
+        let cmd = parse_miracle_command("/memetics-set 0xDEADBEEF 2", (4, 5)).unwrap();
+        let miracle_type = cmd.miracle_type;
+        let target_x = cmd.target_x;
+        let target_y = cmd.target_y;
+        let radius = cmd.radius;
+        let payload = cmd.payload;
+        assert_eq!(miracle_type, MiracleType::MemeticsSet as u8);
+        assert_eq!(target_x, 4);
+        assert_eq!(target_y, 5);
+        assert_eq!(radius, 2);
+        assert_eq!(payload, 0xDEADBEEF);
+    }
+
+    #[test]
+    fn test_parse_terrain_raise_command() {
+        let cmd = parse_miracle_command("/terrain-raise 4", (8, 9)).unwrap();
+        assert_eq!(cmd.miracle_type, MiracleType::TerrainRaise as u8);
+        assert_eq!(cmd.target_x, 8);
+        assert_eq!(cmd.target_y, 9);
+        assert_eq!(cmd.radius, 4);
+    }
+
+    #[test]
+    fn test_parse_eclipse_command() {
+        let cmd = parse_miracle_command("/eclipse 2", (30, 10)).unwrap();
+        assert_eq!(cmd.miracle_type, MiracleType::Eclipse as u8);
+        assert_eq!(cmd.target_x, 30);
+        assert_eq!(cmd.target_y, 10);
+        assert_eq!(cmd.radius, 2);
     }
 }
