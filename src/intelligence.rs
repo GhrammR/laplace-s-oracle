@@ -5,7 +5,7 @@
 
 use crate::biology::Taxonomy;
 use crate::physics::{local_memetics_signature, EnvironmentStack};
-use crate::temporal::Position;
+use crate::temporal::{Population, Position};
 use bevy_ecs::prelude::*;
 use rand::Rng;
 use sha2::{Digest, Sha256};
@@ -217,11 +217,13 @@ pub enum Action {
     Defend,
     Build,
     Flee,
+    Ascend,
 }
 
 pub const FEAR_MASK: u64 = 0x8000_0000_0000_0000;
 pub const WARFARE_COGNITIVE_MASK: u64 = 0xF0F0_F0F0_0F0F_0F0F;
 pub const SEMICONDUCTOR_BIT: usize = 128;
+pub const ASCENSION_BIT: usize = crate::wormhole::WORMHOLE_ASCENSION_BIT;
 
 pub trait DecisionEngine {
     fn decide(brain: &SimHashBrain, stimulus: &Stimulus, research_threshold: u32) -> Action;
@@ -274,6 +276,7 @@ pub fn think_system(
         &mut Action,
         &mut TechnologyMask,
         &Position,
+        &Population,
     )>,
 ) {
     let stimulus = Stimulus(env_data.0);
@@ -281,7 +284,7 @@ pub fn think_system(
     const RESEARCH_THRESHOLD: u32 = 16;
     const METALLURGY_BIT: usize = 64;
 
-    for (mut brain, mut action, mut tech, pos) in query.iter_mut() {
+    for (mut brain, mut action, mut tech, pos, population) in query.iter_mut() {
         let x = pos.x as usize;
         let y = pos.y as usize;
         let meme_idx = y * 64 + x;
@@ -323,6 +326,13 @@ pub fn think_system(
             brain.0 ^= FEAR_MASK;
             *action = Action::Flee;
         } else {
+            let local_pressure = ((env_stack.pressure[y] >> x) & 1) == 1;
+            let critical_density = population.0 >= 1_500;
+            if tech.is_bit_set(ASCENSION_BIT) && critical_density && local_pressure {
+                *action = Action::Ascend;
+                continue;
+            }
+
             *action = Intelligence::decide(&brain, &stimulus, RESEARCH_THRESHOLD);
 
             if matches!(*action, Action::Research) {
@@ -387,6 +397,7 @@ mod tests {
     use super::*;
     use crate::physics::EnvironmentStack;
     use crate::telemetry::WorldHash;
+    use bevy_ecs::system::RunSystemOnce;
 
     #[test]
     fn test_cognitive_modification() {
@@ -401,6 +412,7 @@ mod tests {
                 Action::Idle,
                 TechnologyMask::default(),
                 Position { x: 5, y: 5 },
+                Population(100),
             ))
             .id();
 
@@ -456,6 +468,7 @@ mod tests {
             Action::Build,
             mask,
             Position { x: 3, y: 4 },
+            Population(100),
         ));
 
         let mut schedule = Schedule::default();
@@ -474,5 +487,35 @@ mod tests {
         let (next_lhs, next_rhs) = interleaved_crossover(&lhs, &rhs);
         assert_eq!(next_lhs.0, [0; 4]);
         assert_eq!(next_rhs.0, [u64::MAX; 4]);
+    }
+
+    #[test]
+    fn test_ascension_gate_chooses_ascend() {
+        let mut world = World::new();
+        world.insert_resource(EnvironmentData::default());
+        world.insert_resource(EnvironmentStack::default());
+        world.insert_resource(WorldHash([9u8; 32]));
+
+        {
+            let mut env = world.resource_mut::<EnvironmentStack>();
+            env.pressure[6] |= 1 << 5;
+        }
+
+        let mut mask = TechnologyMask::default();
+        mask.set_bit(ASCENSION_BIT);
+
+        let entity = world
+            .spawn((
+                SimHashBrain(0),
+                Action::Idle,
+                mask,
+                Position { x: 5, y: 6 },
+                Population(1_500),
+            ))
+            .id();
+
+        world.run_system_once(think_system).unwrap();
+        let action = world.get::<Action>(entity).unwrap();
+        assert_eq!(*action, Action::Ascend);
     }
 }

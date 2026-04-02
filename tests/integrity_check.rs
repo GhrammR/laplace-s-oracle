@@ -1,7 +1,8 @@
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::RunSystemOnce;
 use laplace_oracle::{
-    biology::*, intelligence::*, physics::*, telemetry::TelemetryFrame, temporal::*,
+    biology::*, intelligence::*, ipc::*, physics::*, telemetry::TelemetryFrame, temporal::*,
+    wormhole::*,
 };
 use sha2::{Digest, Sha256};
 
@@ -130,8 +131,8 @@ fn test_determinism_after_leap() {
 
 #[test]
 fn telemetry_frame_size_seal() {
-    assert_eq!(std::mem::size_of::<TelemetryFrame>(), 10560);
-    println!("[PASS] TelemetryFrame size is exactly 10560 bytes");
+    assert_eq!(std::mem::size_of::<TelemetryFrame>(), 10561);
+    println!("[PASS] TelemetryFrame size is exactly 10561 bytes");
 }
 
 #[test]
@@ -507,12 +508,174 @@ fn test_telemetry_elevation_offsets() {
         apex_species_mask: 0,
         apex_linguistic_sequence: [0u64; 4],
         stack: EnvironmentStack::default(),
+        wormhole_activity: 0,
         signature: [0u8; 64],
     };
     frame.stack.light[2] = 1u64 << 9;
     frame.stack.elevation[17] = 9;
+    frame.wormhole_activity = 3;
     let bytes = frame.as_bytes();
     let light_word = u64::from_le_bytes(bytes[1152 + 16..1152 + 24].try_into().unwrap());
     assert_eq!(light_word, 1u64 << 9);
     assert_eq!(bytes[1280 + 17], 9);
+    assert_eq!(bytes[10496], 3);
+}
+
+#[test]
+fn test_wormhole_payload_packing() {
+    let payload = WormholePayload {
+        taxonomy: 0x1234,
+        brain: 0x5678,
+        linguistics: [1, 2, 3, 4],
+        tech: [5, 6, 7, 8],
+        population: 99,
+        signature: [0xAB; 64],
+    };
+
+    assert_eq!(
+        std::mem::size_of::<WormholePayload>(),
+        WormholePayload::BYTE_SIZE
+    );
+    assert_eq!(WormholePayload::SIGNATURE_OFFSET, 84);
+
+    let bytes = payload.as_bytes();
+    assert_eq!(bytes.len(), WormholePayload::BYTE_SIZE);
+    assert_eq!(&bytes[WormholePayload::SIGNATURE_OFFSET..], &[0xAB; 64]);
+}
+
+#[test]
+fn test_hydrologic_cycle() {
+    let mut env = EnvironmentStack {
+        water: [0u64; WORLD_HEIGHT],
+        temperature: [0u64; WORLD_HEIGHT],
+        pressure: [0u64; WORLD_HEIGHT],
+        ..Default::default()
+    };
+
+    env.water[3] = bit_at(8);
+    env.temperature[3] = bit_at(8);
+
+    hydrologic_cycle_step(&mut env);
+    assert_eq!(env.water[3] & bit_at(8), 0);
+    assert_eq!(env.pressure[3] & bit_at(8), bit_at(8));
+
+    env.temperature[3] = 0;
+    hydrologic_cycle_step(&mut env);
+    assert_eq!(env.pressure[3] & bit_at(8), 0);
+    assert_eq!(env.water[row_below(3)] & bit_at(8), bit_at(8));
+}
+
+#[test]
+fn test_linguistic_trade() {
+    let mut world = World::new();
+    world.insert_resource(RngResource::from_seed([0u8; 32]));
+
+    world.spawn((
+        Position { x: 9, y: 9 },
+        LinguisticSequence([0xAAAA_AAAA_AAAA_AAAA; 4]),
+    ));
+    world.spawn((
+        Position { x: 9, y: 9 },
+        LinguisticSequence([0x5555_5555_5555_5555; 4]),
+    ));
+
+    world.run_system_once(linguistic_trade_system).unwrap();
+
+    let mut sequences: Vec<[u64; 4]> = world
+        .query::<&LinguisticSequence>()
+        .iter(&world)
+        .map(|sequence| sequence.0)
+        .collect();
+    sequences.sort_unstable();
+
+    let expected_low = [0u64; 4];
+    let expected_high = [u64::MAX; 4];
+    let total_diff = sequences[0]
+        .iter()
+        .zip(expected_low.iter())
+        .map(|(lhs, rhs)| (lhs ^ rhs).count_ones())
+        .sum::<u32>()
+        + sequences[1]
+            .iter()
+            .zip(expected_high.iter())
+            .map(|(lhs, rhs)| (lhs ^ rhs).count_ones())
+            .sum::<u32>();
+
+    assert!(
+        total_diff <= 1,
+        "trade should interleave masks with at most one innovation bit"
+    );
+}
+
+#[test]
+fn test_toroidal_wrapping() {
+    let mut env = EnvironmentStack {
+        water: [0u64; WORLD_HEIGHT],
+        ..Default::default()
+    };
+    env.water[WORLD_HEIGHT - 1] = bit_at(WORLD_WIDTH - 1);
+
+    water_flow_step(&mut env);
+    assert_eq!(
+        env.water[0] & bit_at(WORLD_WIDTH - 1),
+        bit_at(WORLD_WIDTH - 1)
+    );
+
+    env.microbiome = [0u64; WORLD_HEIGHT];
+    env.microbiome[0] = bit_at(62);
+    env.microbiome[1] = bit_at(63);
+    env.microbiome[2] = bit_at(61) | bit_at(62) | bit_at(63);
+
+    for _ in 0..4 {
+        microbiome_step(&mut env);
+    }
+
+    assert_eq!(env.microbiome[1], bit_at(63));
+    assert_eq!(env.microbiome[2], bit_at(0));
+    assert_eq!(env.microbiome[3], bit_at(62) | bit_at(63) | bit_at(0));
+}
+
+#[test]
+fn test_ipc_nonce_rejection() {
+    let mut world = World::new();
+    let mut mmap = memmap2::MmapMut::map_anon(20).unwrap();
+    let first = MiracleCommand {
+        nonce: 7,
+        miracle_type: MiracleType::Genesis as u8,
+        target_x: 4,
+        target_y: 5,
+        radius: 1,
+        payload: 0x1234,
+    };
+    mmap[0..20].copy_from_slice(&first.to_bytes());
+
+    world.insert_resource(MiracleMmap(mmap));
+    world.insert_resource(LastMiracleNonce::default());
+    world.insert_resource(EnvironmentStack::default());
+    world.insert_resource(TemporalState::default());
+
+    world.run_system_once(genesis_listener_system).unwrap();
+    let initial_count = world.query::<&Population>().iter(&world).count();
+    assert_eq!(initial_count, 100);
+
+    {
+        let mut mmap_res = world.resource_mut::<MiracleMmap>();
+        let duplicate = MiracleCommand {
+            nonce: 7,
+            miracle_type: MiracleType::Genesis as u8,
+            target_x: 8,
+            target_y: 9,
+            radius: 1,
+            payload: 0xBEEF,
+        };
+        mmap_res.0[0..20].copy_from_slice(&duplicate.to_bytes());
+    }
+
+    world.run_system_once(genesis_listener_system).unwrap();
+    let final_count = world.query::<&Population>().iter(&world).count();
+    assert_eq!(final_count, initial_count);
+
+    let env = world.resource::<EnvironmentStack>();
+    assert_eq!(env.biomass[5] & bit_at(4), bit_at(4));
+    assert_eq!(env.biomass[9] & bit_at(8), 0);
 }

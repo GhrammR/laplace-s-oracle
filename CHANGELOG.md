@@ -3,6 +3,11 @@
 ## Unreleased
 - Pending changes.
 
+## v0.7.0 - 2026-04-01
+- Added the wormhole transport substrate with signed Unix datagram payloads for outgoing ascension and incoming migration.
+- Introduced the Ascend action gate for technology-bit-255 civilizations under critical pressure.
+- Expanded telemetry and the Panopticon with multiverse activity reporting and radar feedback.
+
 ## v0.6.0 - 2026-04-01
 - Added the stellar light substrate with orbital band drift, seasonal width changes, and celestial calendar telemetry in the Panopticon.
 - Coupled sunlight into evaporation and photosynthetic biomass birth while preserving deterministic substrate evolution.

@@ -7,6 +7,7 @@ pub mod physics;
 pub mod taxonomy_decoder;
 pub mod telemetry;
 pub mod temporal;
+pub mod wormhole;
 
 use rkyv::{Archive, Serialize};
 

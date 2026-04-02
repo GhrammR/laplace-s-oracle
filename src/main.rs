@@ -2,11 +2,14 @@ use base64::Engine;
 use bevy_ecs::prelude::*;
 use ed25519_dalek::SigningKey;
 use laplace_oracle::{
-    biology::Taxonomy, intelligence::*, ipc::*, physics::*, telemetry::*, temporal::*, StateVector,
+    biology::Taxonomy, intelligence::*, ipc::*, physics::*, telemetry::*, temporal::*, wormhole::*,
+    StateVector,
 };
 use memmap2::MmapMut;
 use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;
+use std::os::unix::net::UnixDatagram;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{mem, time::SystemTime};
 
@@ -121,6 +124,8 @@ fn main() {
     let mut species = 0u64;
     let mut x = 0u8;
     let mut y = 0u8;
+    let mut wormhole_rx: Option<PathBuf> = None;
+    let mut wormhole_tx: Option<PathBuf> = None;
 
     for i in 1..args.len() {
         if args[i] == "--help" || args[i] == "-h" {
@@ -136,6 +141,8 @@ fn main() {
             println!("  --species <MASK>   Taxonomic mask for Genesis");
             println!("  --x <X>            X-coordinate for Genesis");
             println!("  --y <Y>            Y-coordinate for Genesis");
+            println!("  --wormhole-rx <SOCKET_PATH>  Bind a non-blocking incoming wormhole socket");
+            println!("  --wormhole-tx <SOCKET_PATH>  Send outgoing ascension payloads to a wormhole socket");
             println!("  --help, -h         Print this help message");
             std::process::exit(0);
         }
@@ -166,6 +173,12 @@ fn main() {
         }
         if args[i] == "--y" && i + 1 < args.len() {
             y = args[i + 1].parse().unwrap_or(0);
+        }
+        if args[i] == "--wormhole-rx" && i + 1 < args.len() {
+            wormhole_rx = Some(PathBuf::from(&args[i + 1]));
+        }
+        if args[i] == "--wormhole-tx" && i + 1 < args.len() {
+            wormhole_tx = Some(PathBuf::from(&args[i + 1]));
         }
     }
 
@@ -225,6 +238,22 @@ fn main() {
 
     let stdout = std::io::stdout();
 
+    let rx_socket = wormhole_rx.as_ref().map(|path| {
+        let _ = std::fs::remove_file(path);
+        let socket = UnixDatagram::bind(path).expect("bind wormhole-rx");
+        socket
+            .set_nonblocking(true)
+            .expect("set_nonblocking wormhole-rx");
+        socket
+    });
+    let tx_socket = wormhole_tx.as_ref().map(|_| {
+        let socket = UnixDatagram::unbound().expect("bind wormhole-tx");
+        socket
+            .set_nonblocking(true)
+            .expect("set_nonblocking wormhole-tx");
+        socket
+    });
+
     let mut db = open_universe_db(is_genesis);
     let miracle_db = init_miracles();
 
@@ -258,6 +287,13 @@ fn main() {
     world.insert_resource(EnvironmentStack::default());
     world.insert_resource(StdoutResource(stdout));
     world.insert_resource(TemporalState::default());
+    world.insert_resource(WormholeActivity::default());
+    world.insert_resource(WormholeRuntime {
+        rx: rx_socket,
+        tx: tx_socket,
+        tx_path: wormhole_tx,
+        rx_path: wormhole_rx.clone(),
+    });
 
     world.spawn((
         WorldTag,
@@ -284,6 +320,7 @@ fn main() {
     schedule.add_systems((
         (
             genesis_listener_system,
+            arrival_system,
             mutation_system,
             linguistic_trade_system,
             spatial_conflict_system,
@@ -295,26 +332,31 @@ fn main() {
             .chain()
             .in_set(SimulationPhase::Think),
         (
-            hazard_system,
-            thermodynamics_system,
-            microbiome_system,
-            pressure_system,
-            computation_system,
-            stellar_system,
-            wind_system,
-            vortex_system,
-            volcanic_eruption_system,
-            gravity_system,
-            water_flow_system,
-            hydrologic_cycle_system,
-            laplace_oracle::events::world_event_system,
-            laplace_oracle::biology::life_system,
-            leap_system,
-            natural_spawning_system,
-            miracle_grace_system,
-            miracle_grace_cleanup_system,
-            hash_update_system,
-            tick_advance_system,
+            (
+                hazard_system,
+                thermodynamics_system,
+                microbiome_system,
+                pressure_system,
+                computation_system,
+                stellar_system,
+                wind_system,
+                vortex_system,
+                volcanic_eruption_system,
+                gravity_system,
+                water_flow_system,
+            ),
+            (
+                hydrologic_cycle_system,
+                laplace_oracle::events::world_event_system,
+                laplace_oracle::biology::life_system,
+                leap_system,
+                natural_spawning_system,
+                ascension_system,
+                miracle_grace_system,
+                miracle_grace_cleanup_system,
+                hash_update_system,
+                tick_advance_system,
+            ),
         )
             .chain()
             .in_set(SimulationPhase::Leap),
@@ -322,7 +364,11 @@ fn main() {
     ));
 
     // 4. Infinite Simulation Loop
+    let wormhole_rx_shutdown = wormhole_rx.clone();
     ctrlc::set_handler(move || {
+        if let Some(path) = wormhole_rx_shutdown.as_ref() {
+            let _ = std::fs::remove_file(path);
+        }
         RUNNING.store(false, Ordering::SeqCst);
     })
     .expect("Error setting Ctrl-C handler");

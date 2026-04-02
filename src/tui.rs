@@ -66,10 +66,11 @@ pub struct TelemetryFrame {
     pub light: [u64; 16],
     pub elevation: [u8; 1024],
     pub memetics: [u64; 1024],
+    pub wormhole_activity: u8,
     pub signature: [u8; 64],
 }
 
-const FRAME_SIZE: usize = 10560;
+const FRAME_SIZE: usize = 10561;
 
 pub struct History {
     pub data: [u64; 256],
@@ -453,10 +454,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                     light,
                     elevation,
                     memetics,
-                    signature: buf[10496..10560].try_into().unwrap(),
+                    wormhole_activity: buf[10496],
+                    signature: buf[10497..10561].try_into().unwrap(),
                 };
                 let valid = vk
-                    .verify(&buf[4..10496], &Signature::from_bytes(&frame.signature))
+                    .verify(&buf[4..10497], &Signature::from_bytes(&frame.signature))
                     .is_ok();
                 if valid {
                     let _ = tx.send(RenderEvent::Telemetry(Box::new(frame), valid));
@@ -696,6 +698,24 @@ fn bitboard_color(state: &TuiState) -> Color {
     }
 }
 
+fn wormhole_radar(frame: &TelemetryFrame) -> &'static str {
+    match frame.wormhole_activity {
+        1 => "[ OUTGOING ASCENSION >>> ]",
+        2 => "[ <<< INCOMING MIGRATION ]",
+        3 => "[ <<< INCOMING MIGRATION | OUTGOING ASCENSION >>> ]",
+        _ => "[ multiverse quiet ]",
+    }
+}
+
+fn wormhole_radar_color(frame: &TelemetryFrame) -> Color {
+    match frame.wormhole_activity {
+        1 => Color::LightBlue,
+        2 => Color::LightGreen,
+        3 => Color::Magenta,
+        _ => Color::DarkGray,
+    }
+}
+
 fn render_bitboard(frame: &TelemetryFrame, state: &TuiState) -> String {
     let mut output = String::with_capacity(1024 + 16);
     for y in 0..16 {
@@ -767,7 +787,11 @@ fn ui(f: &mut Frame, last: &Option<(TelemetryFrame, bool)>, history: &History, s
         .split(chunks[1]);
     let left = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints([
+            Constraint::Percentage(40),
+            Constraint::Percentage(40),
+            Constraint::Percentage(20),
+        ])
         .split(body[0]);
 
     let pop_raw = history.values();
@@ -817,6 +841,23 @@ fn ui(f: &mut Frame, last: &Option<(TelemetryFrame, bool)>, history: &History, s
                     .bg(Color::Black),
             ),
         left[1],
+    );
+
+    let radar = match last {
+        Some((fr, _)) => Line::from(vec![Span::styled(
+            wormhole_radar(fr),
+            Style::default().fg(wormhole_radar_color(fr)).bold(),
+        )]),
+        None => Line::from("[ multiverse quiet ]"),
+    };
+    f.render_widget(
+        Paragraph::new(radar).block(
+            Block::default()
+                .title(" Multiverse Radar ")
+                .borders(Borders::ALL)
+                .bg(Color::Black),
+        ),
+        left[2],
     );
 
     let bb = match last {

@@ -1,6 +1,6 @@
 //! Verifiable Telemetry Pipeline for the Laplace Oracle.
 //!
-//! BINARY PROTOCOL SPECIFICATION (10560 bytes total):
+//! BINARY PROTOCOL SPECIFICATION (10561 bytes total):
 //! 00-03: [u8; 4] (Sync: 0xAA, 0xBB, 0xCC, 0xDD)
 //! 04-11: u64 (Tick)
 //! 12-19: u64 (LastTick)
@@ -10,7 +10,8 @@
 //! 88-95: u64 (Apex Species Brain Mask)
 //! 96-127: [u64; 4] (Apex Linguistic Sequence)
 //! 128-10495: EnvironmentStack payload
-//! 10496-10559: [u8; 64] (Ed25519 Signature)
+//! 10496: u8 (Wormhole activity)
+//! 10497-10560: [u8; 64] (Ed25519 Signature)
 
 #![allow(unknown_lints)]
 #![deny(clippy::all)]
@@ -19,6 +20,7 @@
 use crate::intelligence::{LinguisticSequence, SimHashBrain, TechnologyMask};
 use crate::physics::EnvironmentStack;
 use crate::temporal::Population;
+use crate::wormhole::WormholeActivity;
 use bevy_ecs::prelude::*;
 use ed25519_dalek::{Signer, SigningKey};
 use std::io::Write;
@@ -35,12 +37,13 @@ pub struct TelemetryFrame {
     pub apex_species_mask: u64,
     pub apex_linguistic_sequence: [u64; 4],
     pub stack: EnvironmentStack,
+    pub wormhole_activity: u8,
     pub signature: [u8; 64],
 }
 
 pub const SYNC_HEADER: [u8; 4] = [0xAA, 0xBB, 0xCC, 0xDD];
-pub const PAYLOAD_SIZE: usize = 10492;
-pub const FRAME_SIZE: usize = 10560;
+pub const PAYLOAD_SIZE: usize = 10493;
+pub const FRAME_SIZE: usize = 10561;
 
 impl TelemetryFrame {
     pub fn as_bytes(&self) -> [u8; FRAME_SIZE] {
@@ -90,7 +93,8 @@ impl TelemetryFrame {
             buf[start..start + 8].copy_from_slice(&self.stack.memetics[i].to_le_bytes());
         }
 
-        buf[10496..10560].copy_from_slice(&self.signature);
+        buf[10496] = self.wormhole_activity;
+        buf[10497..10561].copy_from_slice(&self.signature);
         buf
     }
 }
@@ -126,6 +130,7 @@ pub fn observation_system(
     signing_key: Res<SigningKeyResource>,
     hash: Res<WorldHash>,
     stack: Res<EnvironmentStack>,
+    mut wormhole_activity: ResMut<WormholeActivity>,
     q: Query<(
         &Population,
         &SimHashBrain,
@@ -164,11 +169,12 @@ pub fn observation_system(
         apex_species_mask: apex_mask,
         apex_linguistic_sequence,
         stack: *stack,
+        wormhole_activity: wormhole_activity.0,
         signature: [0u8; 64],
     };
 
     let buffer_tmp = frame.as_bytes();
-    let data_to_sign = &buffer_tmp[4..10496];
+    let data_to_sign = &buffer_tmp[4..10497];
     frame.signature = signing_key.0.sign(data_to_sign).to_bytes();
 
     let final_buffer = frame.as_bytes();
@@ -176,6 +182,7 @@ pub fn observation_system(
     if stdout.write_all(&final_buffer).is_ok() {
         let _ = stdout.flush();
         last_tick.0 = tick.0;
+        wormhole_activity.0 = 0;
     } else {
         dropped.0 += 1;
     }

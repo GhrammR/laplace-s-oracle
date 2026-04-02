@@ -22,3 +22,7 @@ run_test test_biological_determinism
 run_test test_brain_determinism
 run_test telemetry_frame_size_seal
 run_test test_seeding_determinism
+run_test test_hydrologic_cycle
+run_test test_linguistic_trade
+run_test test_toroidal_wrapping
+run_test test_ipc_nonce_rejection

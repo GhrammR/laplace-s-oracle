@@ -44,5 +44,5 @@ printf 'Pre-release v%s
 
 git -C "$ROOT" add Cargo.toml Cargo.lock CHANGELOG.md
 git -C "$ROOT" commit -F "$COMMIT_MESSAGE_FILE"
-git -C "$ROOT" tag "v$VERSION"
-gh release create "v$VERSION" --prerelease --generate-notes --title "v$VERSION" --notes-file "$NOTES_FILE"
+git -C "$ROOT" -c tag.gpgSign=false tag -a "v$VERSION" -F "$NOTES_FILE"
+gh release create "v$VERSION" --prerelease --title "v$VERSION" --notes-file "$NOTES_FILE"
