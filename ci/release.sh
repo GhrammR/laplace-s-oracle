@@ -37,6 +37,7 @@ cargo set-version "$VERSION" --manifest-path "$ROOT/Cargo.toml"
 "$ROOT/ci/audit.sh"
 
 grep -q "^## v$VERSION - " "$ROOT/CHANGELOG.md"
+echo "WARN: Ensure /sync-docs was run in Codex prior to release!"
 printf 'release: v%s
 ' "$VERSION" > "$COMMIT_MESSAGE_FILE"
 printf 'Pre-release v%s

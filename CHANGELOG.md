@@ -3,6 +3,11 @@
 ## Unreleased
 - Pending changes.
 
+## v0.12.0 - 2026-04-02
+- Added cloud verification through a GitHub Actions Rust workflow for fmt, clippy, and tests on pushes to `main`.
+- Added the Codex `/sync-docs` command definition and updated the Constitution to require documentation sync before releases.
+- Rewrote `README.md` and `OPERATIONS.md` so the BitGrid layers, orbital mechanics, and Panopticon God-Lens commands match the current code.
+
 ## v0.11.0 - 2026-04-02
 - Replaced the linear stellar band with a deterministic orbital system driven by a tick-zero celestial seed and integer sine lookup tables.
 - Added celestial telemetry state and Panopticon header decoding for star type, season, and tide level.

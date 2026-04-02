@@ -41,3 +41,6 @@ Upon completing any architectural phase or release, you MUST output a detailed M
 
 8. The Innovation Log
 You MUST maintain 'INNOVATION_LOG.md' as a persistent ledger. Read it before modifying it. Do NOT remove an idea unless it is fully implemented, mathematically impossible under the 8GB Law, or explicitly rejected. Append 1-3 new hypotheses after every release. You MUST also include at least one 'Meta-Improvement' (a suggestion for a new or improvement to a Codex skill, automation, or CI/CD workflow to improve your own operational efficiency). Link to this log in your AAR.
+
+9. Documentation Sync
+Before executing /release, you MUST autonomously execute the /sync-docs skill and commit the resulting changes.
