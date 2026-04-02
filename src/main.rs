@@ -126,6 +126,7 @@ fn main() {
     let mut y = 0u8;
     let mut wormhole_rx: Option<PathBuf> = None;
     let mut wormhole_tx: Option<PathBuf> = None;
+    let api_socket_path = PathBuf::from("/tmp/oracle_api.sock");
 
     for i in 1..args.len() {
         if args[i] == "--help" || args[i] == "-h" {
@@ -238,6 +239,8 @@ fn main() {
 
     let stdout = std::io::stdout();
 
+    let api_listener = bind_api_listener(&api_socket_path).expect("bind oracle api listener");
+
     let rx_socket = wormhole_rx.as_ref().map(|path| {
         let _ = std::fs::remove_file(path);
         let socket = UnixDatagram::bind(path).expect("bind wormhole-rx");
@@ -280,6 +283,10 @@ fn main() {
     world.insert_resource(WorldHash::default());
     world.insert_resource(MmapResource(db));
     world.insert_resource(MiracleMmap(miracle_db));
+    world.insert_resource(ApiListenerRuntime {
+        listener: api_listener,
+        path: api_socket_path.clone(),
+    });
     world.insert_resource(LastMiracleNonce::default());
     world.insert_resource(LastTick::default());
     world.insert_resource(RngResource::from_seed(initial_hash));
@@ -319,6 +326,7 @@ fn main() {
 
     schedule.add_systems((
         (
+            api_listener_system,
             genesis_listener_system,
             arrival_system,
             mutation_system,
@@ -367,10 +375,12 @@ fn main() {
 
     // 4. Infinite Simulation Loop
     let wormhole_rx_shutdown = wormhole_rx.clone();
+    let api_socket_shutdown = api_socket_path.clone();
     ctrlc::set_handler(move || {
         if let Some(path) = wormhole_rx_shutdown.as_ref() {
             let _ = std::fs::remove_file(path);
         }
+        let _ = std::fs::remove_file(&api_socket_shutdown);
         RUNNING.store(false, Ordering::SeqCst);
     })
     .expect("Error setting Ctrl-C handler");
@@ -402,6 +412,8 @@ fn main() {
             std::thread::sleep(sleep_dur - elapsed);
         }
     }
+
+    let _ = std::fs::remove_file(&api_socket_path);
 }
 
 fn leap_system(world: &mut World) {

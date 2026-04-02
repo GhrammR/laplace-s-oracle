@@ -5,6 +5,7 @@ use laplace_oracle::{
     wormhole::*,
 };
 use sha2::{Digest, Sha256};
+use std::path::PathBuf;
 
 #[test]
 fn test_biological_determinism() {
@@ -487,6 +488,23 @@ fn test_seeding_determinism() {
         rng_a, rng_b,
         "RNG state must be identical for the same seed"
     );
+}
+
+#[test]
+fn test_api_socket_creation() {
+    let socket_path = PathBuf::from(format!(
+        "/tmp/oracle_api_test_{}_{}.sock",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+
+    let listener = bind_api_listener(&socket_path).expect("bind test api socket");
+    assert!(socket_path.exists());
+    drop(listener);
+    let _ = std::fs::remove_file(&socket_path);
 }
 
 #[test]

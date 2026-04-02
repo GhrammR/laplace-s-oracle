@@ -3,6 +3,11 @@
 ## Unreleased
 - Pending changes.
 
+## v0.9.0 - 2026-04-01
+- Added the God-Mode API socket at `/tmp/oracle_api.sock` with non-blocking ingress that reuses the existing miracle memory map transaction path.
+- Bound and cleaned the API socket during Oracle startup and shutdown to avoid stale-address failures.
+- Expanded the integrity matrix with API socket creation coverage while preserving telemetry framing.
+
 ## v0.8.0 - 2026-04-01
 - Added deterministic entity consolidation to merge duplicate civilizations by coordinate and taxonomy while preserving the most advanced survivor.
 - Introduced homeostatic negentropy to reseed biomass and water after total ecological collapse.

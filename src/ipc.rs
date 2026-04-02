@@ -11,6 +11,9 @@ use crate::physics::EnvironmentStack;
 use crate::temporal::{Population, Position};
 use bevy_ecs::prelude::*;
 use memmap2::MmapMut;
+use std::io::{ErrorKind, Read};
+use std::os::unix::net::UnixListener;
+use std::path::{Path, PathBuf};
 
 // ── Species Masks ────────────────────────────────────────────────────────────
 
@@ -110,6 +113,12 @@ pub struct LastMiracleNonce(pub u64);
 pub struct MiracleMmap(pub MmapMut);
 
 #[derive(Resource)]
+pub struct ApiListenerRuntime {
+    pub listener: UnixListener,
+    pub path: PathBuf,
+}
+
+#[derive(Resource)]
 pub struct TemporalState {
     pub paused: bool,
     pub speed_ms: u64,
@@ -126,6 +135,45 @@ impl Default for TemporalState {
 
 #[derive(Component)]
 pub struct MiracleGrace(pub u32);
+
+pub fn bind_api_listener(path: &Path) -> std::io::Result<UnixListener> {
+    if path.exists() {
+        let _ = std::fs::remove_file(path);
+    }
+    let listener = UnixListener::bind(path)?;
+    listener.set_nonblocking(true)?;
+    Ok(listener)
+}
+
+pub fn api_listener_system(
+    mut mmap: ResMut<MiracleMmap>,
+    runtime: Option<Res<ApiListenerRuntime>>,
+) {
+    let Some(runtime) = runtime else {
+        return;
+    };
+
+    loop {
+        match runtime.listener.accept() {
+            Ok((mut stream, _addr)) => {
+                let _ = stream.set_nonblocking(true);
+                let mut bytes = [0u8; 20];
+                match stream.read(&mut bytes) {
+                    Ok(20) => {
+                        let cmd = MiracleCommand::from_bytes(&bytes);
+                        mmap.0[0..20].copy_from_slice(&cmd.to_bytes());
+                        let _ = mmap.0.flush();
+                    }
+                    Ok(_) => continue,
+                    Err(err) if err.kind() == ErrorKind::WouldBlock => continue,
+                    Err(_) => continue,
+                }
+            }
+            Err(err) if err.kind() == ErrorKind::WouldBlock => break,
+            Err(_) => break,
+        }
+    }
+}
 
 // ── Systems ──────────────────────────────────────────────────────────────────
 

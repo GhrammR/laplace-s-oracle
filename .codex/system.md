@@ -35,3 +35,6 @@ After every file mutation, you MUST execute `cargo check --manifest-path src/Car
 
 6. No Greedy Replacements
 Avoid replacing short, common symbols (like `?`, `-`, `;`) globally. Use unique anchor strings (at least 20 characters of surrounding context) to ensure surgical precision.
+
+7. The After-Action Report (AAR)
+Upon completing any architectural phase or release, you MUST output a detailed Markdown summary. This summary must include: Files Modified, Exact Byte-Size changes to TelemetryFrame, a brief explanation of the Bitwise/Mathematical logic implemented, and the GitHub Release URL.
