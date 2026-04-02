@@ -154,8 +154,8 @@ pub fn life_step(env_stack: &mut EnvironmentStack, env_data: &mut EnvironmentDat
         let bit1 = sb;
         let bit2 = ca ^ cb;
 
-        // B3 / S23 Rules + Thirst Gate:
-        let birth = !curr & !bit2 & bit1 & bit0 & water_3x3;
+        // B3 / S23 Rules + Thirst Gate + Photosynthesis Gate:
+        let birth = !curr & !bit2 & bit1 & bit0 & water_3x3 & env_stack.light[i];
         let survival = curr & !bit2 & bit1 & water_3x3;
 
         *target = birth | survival;
@@ -199,17 +199,40 @@ mod tests {
         let mut env_stack = EnvironmentStack::default();
         let mut env_data = EnvironmentData::default();
 
-        // No water anywhere
         env_stack.water = [0u64; 16];
-
-        // Single isolated biomass bit at col 8, row 8
         env_stack.biomass = [0u64; 16];
         env_stack.biomass[8] = 1u64 << 8;
 
-        // One life_step tick
         life_step(&mut env_stack, &mut env_data);
 
-        // Biomass must be dead — no Water in 3x3 neighbourhood
         assert_eq!(env_stack.biomass[8], 0u64);
+    }
+
+    #[test]
+    fn test_photosynthesis_birth_requires_light() {
+        let mut env_stack = EnvironmentStack::default();
+        let mut env_data = EnvironmentData::default();
+
+        env_stack.biomass = [0u64; WORLD_HEIGHT];
+        env_stack.water = [0u64; WORLD_HEIGHT];
+        env_stack.light = [0u64; WORLD_HEIGHT];
+
+        env_stack.biomass[7] = (1u64 << 31) | (1u64 << 32);
+        env_stack.biomass[8] = 1u64 << 31;
+
+        env_stack.water[7] = (1u64 << 31) | (1u64 << 32) | (1u64 << 33);
+        env_stack.water[8] = (1u64 << 31) | (1u64 << 32) | (1u64 << 33);
+        env_stack.water[9] = (1u64 << 31) | (1u64 << 32) | (1u64 << 33);
+
+        life_step(&mut env_stack, &mut env_data);
+        assert_eq!(env_stack.biomass[8] & (1u64 << 32), 0);
+
+        env_stack.biomass = [0u64; WORLD_HEIGHT];
+        env_stack.biomass[7] = (1u64 << 31) | (1u64 << 32);
+        env_stack.biomass[8] = 1u64 << 31;
+        env_stack.light[8] = 1u64 << 32;
+
+        life_step(&mut env_stack, &mut env_data);
+        assert_eq!(env_stack.biomass[8] & (1u64 << 32), 1u64 << 32);
     }
 }

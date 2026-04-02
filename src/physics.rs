@@ -15,6 +15,8 @@ use bevy_ecs::prelude::*;
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 
+use crate::telemetry::Tick;
+
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C)]
 pub struct EnvironmentStack {
@@ -26,6 +28,7 @@ pub struct EnvironmentStack {
     pub pressure: [u64; 16],
     pub microbiome: [u64; 16],
     pub logic: [u64; 16],
+    pub light: [u64; 16],
     pub elevation: [u8; 1024],
     pub memetics: [u64; 1024],
 }
@@ -114,6 +117,27 @@ fn lowland_bonus_mask(env: &EnvironmentStack, row: usize) -> u64 {
     mask
 }
 
+fn seasonal_light_width(orbital_row: usize) -> usize {
+    match orbital_row / 4 {
+        0 => 24,
+        1 => 40,
+        2 => 32,
+        _ => 16,
+    }
+}
+
+fn wrapped_band_mask(start: usize, width: usize) -> u64 {
+    if width >= WORLD_WIDTH {
+        return u64::MAX;
+    }
+
+    let mut mask = 0u64;
+    for offset in 0..width {
+        mask |= bit_at(start + offset);
+    }
+    mask
+}
+
 impl Default for EnvironmentStack {
     fn default() -> Self {
         let mut biomass = [0u64; 16];
@@ -136,6 +160,7 @@ impl Default for EnvironmentStack {
             pressure: [0u64; 16],
             microbiome,
             logic: [0u64; 16],
+            light: [0u64; 16],
             elevation: [0u8; 1024],
             memetics: [0u64; 1024],
         }
@@ -266,6 +291,20 @@ pub fn water_flow_step(env: &mut EnvironmentStack) {
     env.water = next_water;
 }
 
+pub fn stellar_system(tick: Res<Tick>, mut env: ResMut<EnvironmentStack>) {
+    stellar_step(&mut env, tick.0);
+}
+
+pub fn stellar_step(env: &mut EnvironmentStack, tick: u64) {
+    let orbital_row = ((tick / 1000) % WORLD_HEIGHT as u64) as usize;
+    let hour = (tick % 1000) as usize;
+    let width = seasonal_light_width(orbital_row);
+    let drift_start = (hour * WORLD_WIDTH) / 1000;
+
+    env.light = [0u64; WORLD_HEIGHT];
+    env.light[orbital_row] = wrapped_band_mask(drift_start, width);
+}
+
 /// Hydrologic Cycle System: Evaporation-Precipitation cycle.
 pub fn hydrologic_cycle_system(mut env: ResMut<EnvironmentStack>) {
     hydrologic_cycle_step(&mut env);
@@ -275,27 +314,30 @@ pub fn hydrologic_cycle_step(env: &mut EnvironmentStack) {
     let current = *env;
     let mut next_water = env.water;
     let mut next_pressure = env.pressure;
+    let mut next_temperature = env.temperature;
 
     for i in 0..16 {
-        let next_i = (i + 1) % 16;
+        let next_i = row_below(i);
 
         let w = current.water[i];
-        let t = current.temperature[i];
         let p = current.pressure[i];
+        let heated = current.temperature[i] | (current.water[i] & current.light[i]);
+        next_temperature[i] = heated;
 
         // Evaporation: Water + Heat -> Pressure
-        let evaporated = w & t;
+        let evaporated = w & heated;
         next_water[i] &= !evaporated;
         next_pressure[i] |= evaporated;
 
         // Precipitation: Pressure + !Heat -> Water (falls to row below)
-        let condensed = p & !t;
+        let condensed = p & !heated;
         next_pressure[i] &= !condensed;
         next_water[next_i] |= condensed;
     }
 
     env.water = next_water;
     env.pressure = next_pressure;
+    env.temperature = next_temperature;
 }
 
 pub fn gravity_step(env: &mut EnvironmentStack) {
@@ -682,6 +724,36 @@ mod tests {
 
         pressure_step(&mut env);
         assert_eq!(env.pressure[5] & bit_at(5), bit_at(5));
+    }
+
+    #[test]
+    fn test_stellar_band_tracks_orbit_and_drift() {
+        let mut env = EnvironmentStack::default();
+        stellar_step(&mut env, 4_500);
+
+        assert!(env.light.iter().enumerate().all(|(row, bits)| if row == 4 {
+            *bits != 0
+        } else {
+            *bits == 0
+        }));
+        assert_eq!(env.light[4].count_ones(), 40);
+        assert_eq!(env.light[4] & bit_at(32), bit_at(32));
+    }
+
+    #[test]
+    fn test_hydrologic_cycle_generates_heat_from_light() {
+        let mut env = EnvironmentStack::default();
+        env.water = [0u64; WORLD_HEIGHT];
+        env.temperature = [0u64; WORLD_HEIGHT];
+        env.pressure = [0u64; WORLD_HEIGHT];
+        env.water[3] = bit_at(7);
+        env.light[3] = bit_at(7);
+
+        hydrologic_cycle_step(&mut env);
+
+        assert_eq!(env.temperature[3] & bit_at(7), bit_at(7));
+        assert_eq!(env.pressure[3] & bit_at(7), bit_at(7));
+        assert_eq!(env.water[3] & bit_at(7), 0);
     }
 
     #[test]

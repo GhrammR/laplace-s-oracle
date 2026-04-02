@@ -71,7 +71,7 @@ fn hash_update_system(
     hasher.update(&mmap_ref[8..8 + slot_size]);
     hasher.update(rng.state_bytes());
 
-    // Hash EnvironmentStack (896 bytes)
+    // Hash EnvironmentStack layers
     hasher.update(bytemuck::bytes_of(&env.biomass));
     hasher.update(bytemuck::bytes_of(&env.water));
     hasher.update(bytemuck::bytes_of(&env.temperature));
@@ -80,6 +80,7 @@ fn hash_update_system(
     hasher.update(bytemuck::bytes_of(&env.pressure));
     hasher.update(bytemuck::bytes_of(&env.microbiome));
     hasher.update(bytemuck::bytes_of(&env.logic));
+    hasher.update(bytemuck::bytes_of(&env.light));
     hasher.update(bytemuck::bytes_of(&env.elevation));
 
     // Hash Memetics (8192 bytes)
@@ -299,6 +300,7 @@ fn main() {
             microbiome_system,
             pressure_system,
             computation_system,
+            stellar_system,
             wind_system,
             vortex_system,
             volcanic_eruption_system,

@@ -12,6 +12,7 @@
 
 use std::{
     error::Error,
+    fmt,
     fs::OpenOptions,
     io::{self, Read, Write},
     panic, thread,
@@ -39,9 +40,9 @@ use ratatui::{
 use laplace_oracle::ipc::{MiracleCommand, MiracleType};
 use laplace_oracle::taxonomy_decoder::decode_taxonomy;
 
-// ── [Local decoding logic removed - now using laplace_oracle::taxonomy_decoder] ──
+// [Local decoding logic removed - now using laplace_oracle::taxonomy_decoder]
 
-// ── Structures ──────────────────────────────────────────────────────────────
+// Structures
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
@@ -62,12 +63,13 @@ pub struct TelemetryFrame {
     pub pressure: [u64; 16],
     pub microbiome: [u64; 16],
     pub logic: [u64; 16],
+    pub light: [u64; 16],
     pub elevation: [u8; 1024],
     pub memetics: [u64; 1024],
     pub signature: [u8; 64],
 }
 
-const FRAME_SIZE: usize = 10432;
+const FRAME_SIZE: usize = 10560;
 
 pub struct History {
     pub data: [u64; 256],
@@ -119,6 +121,7 @@ enum VisualLayer {
     Microbiome,
     Memetics,
     Logic,
+    Light,
     Culture,
 }
 
@@ -133,9 +136,29 @@ impl VisualLayer {
             Self::Pressure => Self::Microbiome,
             Self::Microbiome => Self::Memetics,
             Self::Memetics => Self::Logic,
-            Self::Logic => Self::Culture,
+            Self::Logic => Self::Light,
+            Self::Light => Self::Culture,
             Self::Culture => Self::Biomass,
         }
+    }
+}
+
+impl fmt::Display for VisualLayer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label = match self {
+            Self::Biomass => "Biomass",
+            Self::Water => "Water",
+            Self::Temperature => "Temperature",
+            Self::Structure => "Structure",
+            Self::Particle => "Particle",
+            Self::Pressure => "Pressure",
+            Self::Microbiome => "Microbiome",
+            Self::Memetics => "Memetics",
+            Self::Logic => "Logic",
+            Self::Light => "Light",
+            Self::Culture => "Culture",
+        };
+        f.write_str(label)
     }
 }
 
@@ -154,7 +177,7 @@ enum RenderEvent {
     Telemetry(Box<TelemetryFrame>, bool),
 }
 
-// ── Logic ───────────────────────────────────────────────────────────────────
+// Logic
 
 fn parse_and_dispatch_command(state: &mut TuiState) {
     let cmd = state.command_buffer.trim();
@@ -367,7 +390,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         s
     } else {
         cleanup_terminal(&mut terminal)?;
-        eprintln!("Identity not found. Is the Oracle running?");
+        eprintln!("Identity not found. Is the Oracle running-");
         std::process::exit(1);
     };
 
@@ -406,6 +429,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     pressure,
                     microbiome,
                     logic,
+                    light,
                     elevation,
                     memetics,
                 ) = unpack_env(&buf);
@@ -426,12 +450,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                     pressure,
                     microbiome,
                     logic,
+                    light,
                     elevation,
                     memetics,
-                    signature: buf[10368..10432].try_into().unwrap(),
+                    signature: buf[10496..10560].try_into().unwrap(),
                 };
                 let valid = vk
-                    .verify(&buf[4..10368], &Signature::from_bytes(&frame.signature))
+                    .verify(&buf[4..10496], &Signature::from_bytes(&frame.signature))
                     .is_ok();
                 if valid {
                     let _ = tx.send(RenderEvent::Telemetry(Box::new(frame), valid));
@@ -534,21 +559,22 @@ fn unpack_env(
     [u64; 16],
     [u64; 16],
     [u64; 16],
+    [u64; 16],
     [u8; 1024],
     [u64; 1024],
 ) {
-    let mut out_bits = [[0u64; 16]; 8];
-    for l in 0..8 {
+    let mut out_bits = [[0u64; 16]; 9];
+    for l in 0..9 {
         for i in 0..16 {
             let start = 128 + l * 128 + i * 8;
             out_bits[l][i] = u64::from_le_bytes(buf[start..start + 8].try_into().unwrap());
         }
     }
     let mut out_elevation = [0u8; 1024];
-    out_elevation.copy_from_slice(&buf[1152..2176]);
+    out_elevation.copy_from_slice(&buf[1280..2304]);
     let mut out_memetics = [0u64; 1024];
     for i in 0..1024 {
-        let start = 2176 + i * 8;
+        let start = 2304 + i * 8;
         out_memetics[i] = u64::from_le_bytes(buf[start..start + 8].try_into().unwrap());
     }
     (
@@ -560,6 +586,7 @@ fn unpack_env(
         out_bits[5],
         out_bits[6],
         out_bits[7],
+        out_bits[8],
         out_elevation,
         out_memetics,
     )
@@ -575,6 +602,19 @@ fn cleanup_terminal<B: Backend + Write>(t: &mut Terminal<B>) -> io::Result<()> {
 fn culture_bit(sequence: [u64; 4], x: usize) -> bool {
     let motif = (sequence[0] & 0xFF) as u8;
     ((motif >> (x % 8)) & 1) == 1
+}
+
+fn current_hour(tick: u64) -> u64 {
+    tick % 1000
+}
+
+fn season_name(tick: u64) -> &'static str {
+    match ((tick / 1000) % 16) / 4 {
+        0 => "Spring",
+        1 => "Summer",
+        2 => "Autumn",
+        _ => "Winter",
+    }
 }
 
 fn elevation_at(frame: &TelemetryFrame, x: usize, y: usize) -> u8 {
@@ -593,7 +633,7 @@ fn terrain_glyph(elevation: u8) -> char {
 
 fn active_braille_glyph(elevation: u8) -> char {
     match elevation {
-        0 => '?',
+        0 => '-',
         1..=63 => '\u{2801}',
         64..=127 => '\u{2803}',
         128..=191 => '\u{2807}',
@@ -612,6 +652,7 @@ fn layer_bit(frame: &TelemetryFrame, layer: VisualLayer, x: usize, y: usize) -> 
         VisualLayer::Microbiome => (frame.microbiome[y] >> x) & 1 == 1,
         VisualLayer::Memetics => frame.memetics[y * 64 + x] != 0,
         VisualLayer::Logic => (frame.logic[y] >> x) & 1 == 1,
+        VisualLayer::Light => (frame.light[y] >> x) & 1 == 1,
         VisualLayer::Culture => culture_bit(frame.apex_linguistic_sequence, x),
     }
 }
@@ -621,11 +662,12 @@ fn primary_glyph(frame: &TelemetryFrame, layer: VisualLayer, x: usize, y: usize)
         VisualLayer::Memetics => {
             let hash = frame.memetics[y * 64 + x];
             let chars = [
-                '$', '@', '&', '#', '%', '?', '!', '*', '+', '=', '^', '~', 'X', 'O', 'M',
+                '$', '@', '&', '#', '%', '-', '!', '*', '+', '=', '^', '~', 'X', 'O', 'M',
             ];
             chars[(hash % chars.len() as u64) as usize]
         }
         VisualLayer::Logic => '\u{26A1}',
+        VisualLayer::Light => '*',
         VisualLayer::Culture => {
             if culture_bit(frame.apex_linguistic_sequence, x) {
                 active_braille_glyph(elevation_at(frame, x, y))
@@ -640,16 +682,17 @@ fn primary_glyph(frame: &TelemetryFrame, layer: VisualLayer, x: usize, y: usize)
 fn reference_glyph(layer: VisualLayer) -> char {
     match layer {
         VisualLayer::Logic => '\u{26A1}',
+        VisualLayer::Light => '*',
         VisualLayer::Culture => '+',
         _ => '+',
     }
 }
 
 fn bitboard_color(state: &TuiState) -> Color {
-    if matches!(state.primary_layer, VisualLayer::Logic) {
-        Color::Yellow
-    } else {
-        Color::White
+    match state.primary_layer {
+        VisualLayer::Logic => Color::Yellow,
+        VisualLayer::Light => Color::LightYellow,
+        _ => Color::White,
     }
 }
 
@@ -700,6 +743,13 @@ fn ui(f: &mut Frame, last: &Option<(TelemetryFrame, bool)>, history: &History, s
     let header = Line::from(vec![
         Span::styled("Tick: ", Style::default().fg(Color::Gray)),
         Span::styled(t.to_string(), Style::default().fg(Color::White).bold()),
+        Span::raw(" | Hour: "),
+        Span::styled(
+            current_hour(t).to_string(),
+            Style::default().fg(Color::LightYellow),
+        ),
+        Span::raw(" | Season: "),
+        Span::styled(season_name(t), Style::default().fg(Color::Cyan).bold()),
         Span::raw(" | Hash: "),
         Span::styled(hex::encode(h), Style::default().fg(Color::White)),
         Span::raw(" | Status: "),
@@ -774,9 +824,9 @@ fn ui(f: &mut Frame, last: &Option<(TelemetryFrame, bool)>, history: &History, s
         None => "...".into(),
     };
     let title = if let Some(rl) = state.reference_layer {
-        format!(" Bitboard [{:?} / {:?}] ", state.primary_layer, rl)
+        format!(" Bitboard [{:-} / {:-}] ", state.primary_layer, rl)
     } else {
-        format!(" Bitboard [{:?}] ", state.primary_layer)
+        format!(" Bitboard [{:-}] ", state.primary_layer)
     };
     f.render_widget(
         Paragraph::new(bb)

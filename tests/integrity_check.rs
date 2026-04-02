@@ -130,8 +130,8 @@ fn test_determinism_after_leap() {
 
 #[test]
 fn telemetry_frame_size_seal() {
-    assert_eq!(std::mem::size_of::<TelemetryFrame>(), 10432);
-    println!("[PASS] TelemetryFrame size is exactly 10432 bytes");
+    assert_eq!(std::mem::size_of::<TelemetryFrame>(), 10560);
+    println!("[PASS] TelemetryFrame size is exactly 10560 bytes");
 }
 
 #[test]
@@ -492,6 +492,7 @@ fn test_seeding_determinism() {
 fn test_default_elevation_zero() {
     let env = EnvironmentStack::default();
     assert!(env.elevation.iter().all(|&v| v == 0));
+    assert!(env.light.iter().all(|&v| v == 0));
 }
 
 #[test]
@@ -508,7 +509,10 @@ fn test_telemetry_elevation_offsets() {
         stack: EnvironmentStack::default(),
         signature: [0u8; 64],
     };
+    frame.stack.light[2] = 1u64 << 9;
     frame.stack.elevation[17] = 9;
     let bytes = frame.as_bytes();
-    assert_eq!(bytes[1152 + 17], 9);
+    let light_word = u64::from_le_bytes(bytes[1152 + 16..1152 + 24].try_into().unwrap());
+    assert_eq!(light_word, 1u64 << 9);
+    assert_eq!(bytes[1280 + 17], 9);
 }

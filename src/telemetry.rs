@@ -1,6 +1,6 @@
 //! Verifiable Telemetry Pipeline for the Laplace Oracle.
 //!
-//! BINARY PROTOCOL SPECIFICATION (10432 bytes total):
+//! BINARY PROTOCOL SPECIFICATION (10560 bytes total):
 //! 00-03: [u8; 4] (Sync: 0xAA, 0xBB, 0xCC, 0xDD)
 //! 04-11: u64 (Tick)
 //! 12-19: u64 (LastTick)
@@ -9,8 +9,8 @@
 //! 56-87: [u64; 4] (TechnologyMask)
 //! 88-95: u64 (Apex Species Brain Mask)
 //! 96-127: [u64; 4] (Apex Linguistic Sequence)
-//! 128-10367: EnvironmentStack payload
-//! 10368-10431: [u8; 64] (Ed25519 Signature)
+//! 128-10495: EnvironmentStack payload
+//! 10496-10559: [u8; 64] (Ed25519 Signature)
 
 #![allow(unknown_lints)]
 #![deny(clippy::all)]
@@ -39,8 +39,8 @@ pub struct TelemetryFrame {
 }
 
 pub const SYNC_HEADER: [u8; 4] = [0xAA, 0xBB, 0xCC, 0xDD];
-pub const PAYLOAD_SIZE: usize = 10364;
-pub const FRAME_SIZE: usize = 10432;
+pub const PAYLOAD_SIZE: usize = 10492;
+pub const FRAME_SIZE: usize = 10560;
 
 impl TelemetryFrame {
     pub fn as_bytes(&self) -> [u8; FRAME_SIZE] {
@@ -78,17 +78,19 @@ impl TelemetryFrame {
                 .copy_from_slice(&self.stack.microbiome[i].to_le_bytes());
             buf[1024 + i * 8..1024 + (i + 1) * 8]
                 .copy_from_slice(&self.stack.logic[i].to_le_bytes());
+            buf[1152 + i * 8..1152 + (i + 1) * 8]
+                .copy_from_slice(&self.stack.light[i].to_le_bytes());
         }
 
         // Elevation layer: 1024 bytes, one static u8 height sample per cell.
-        buf[1152..2176].copy_from_slice(&self.stack.elevation);
+        buf[1280..2304].copy_from_slice(&self.stack.elevation);
 
         for i in 0..1024 {
-            let start = 2176 + i * 8;
+            let start = 2304 + i * 8;
             buf[start..start + 8].copy_from_slice(&self.stack.memetics[i].to_le_bytes());
         }
 
-        buf[10368..10432].copy_from_slice(&self.signature);
+        buf[10496..10560].copy_from_slice(&self.signature);
         buf
     }
 }
@@ -166,7 +168,7 @@ pub fn observation_system(
     };
 
     let buffer_tmp = frame.as_bytes();
-    let data_to_sign = &buffer_tmp[4..10368];
+    let data_to_sign = &buffer_tmp[4..10496];
     frame.signature = signing_key.0.sign(data_to_sign).to_bytes();
 
     let final_buffer = frame.as_bytes();

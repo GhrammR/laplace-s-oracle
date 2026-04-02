@@ -3,6 +3,11 @@
 ## Unreleased
 - Pending changes.
 
+## v0.6.0 - 2026-04-01
+- Added the stellar light substrate with orbital band drift, seasonal width changes, and celestial calendar telemetry in the Panopticon.
+- Coupled sunlight into evaporation and photosynthetic biomass birth while preserving deterministic substrate evolution.
+- Expanded telemetry framing, world hashing, and integrity coverage for the light layer.
+
 ## v0.5.0 - 2026-04-01
 - Hardened release provenance to publish canonical GitHub prereleases.
 - Converted substrate CA logic to an explicit toroidal manifold with periodic boundary conditions.
