@@ -80,6 +80,7 @@ fn hash_update_system(
     hasher.update(bytemuck::bytes_of(&env.pressure));
     hasher.update(bytemuck::bytes_of(&env.microbiome));
     hasher.update(bytemuck::bytes_of(&env.logic));
+    hasher.update(bytemuck::bytes_of(&env.elevation));
 
     // Hash Memetics (8192 bytes)
     for word in &env.memetics {

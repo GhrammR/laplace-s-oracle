@@ -130,8 +130,8 @@ fn test_determinism_after_leap() {
 
 #[test]
 fn telemetry_frame_size_seal() {
-    assert_eq!(std::mem::size_of::<TelemetryFrame>(), 9408);
-    println!("[PASS] TelemetryFrame size is exactly 9248 bytes");
+    assert_eq!(std::mem::size_of::<TelemetryFrame>(), 10432);
+    println!("[PASS] TelemetryFrame size is exactly 10432 bytes");
 }
 
 #[test]
@@ -486,4 +486,29 @@ fn test_seeding_determinism() {
         rng_a, rng_b,
         "RNG state must be identical for the same seed"
     );
+}
+
+#[test]
+fn test_default_elevation_zero() {
+    let env = EnvironmentStack::default();
+    assert!(env.elevation.iter().all(|&v| v == 0));
+}
+
+#[test]
+fn test_telemetry_elevation_offsets() {
+    let mut frame = TelemetryFrame {
+        sync: [0xAA, 0xBB, 0xCC, 0xDD],
+        tick: 1,
+        last_tick: 0,
+        world_hash: [0u8; 32],
+        pop: 0,
+        tech_mask: [0u64; 4],
+        apex_species_mask: 0,
+        apex_linguistic_sequence: [0u64; 4],
+        stack: EnvironmentStack::default(),
+        signature: [0u8; 64],
+    };
+    frame.stack.elevation[17] = 9;
+    let bytes = frame.as_bytes();
+    assert_eq!(bytes[1152 + 17], 9);
 }

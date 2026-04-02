@@ -26,7 +26,92 @@ pub struct EnvironmentStack {
     pub pressure: [u64; 16],
     pub microbiome: [u64; 16],
     pub logic: [u64; 16],
+    pub elevation: [u8; 1024],
     pub memetics: [u64; 1024],
+}
+
+pub const WORLD_WIDTH: usize = 64;
+pub const WORLD_HEIGHT: usize = 16;
+
+#[inline]
+pub const fn wrap_x(x: usize) -> usize {
+    x % WORLD_WIDTH
+}
+
+#[inline]
+pub const fn wrap_y(y: usize) -> usize {
+    y % WORLD_HEIGHT
+}
+
+#[inline]
+pub const fn row_above(row: usize) -> usize {
+    (row + WORLD_HEIGHT - 1) % WORLD_HEIGHT
+}
+
+#[inline]
+pub const fn row_below(row: usize) -> usize {
+    (row + 1) % WORLD_HEIGHT
+}
+
+#[inline]
+pub const fn cell_index(x: usize, y: usize) -> usize {
+    wrap_y(y) * WORLD_WIDTH + wrap_x(x)
+}
+
+#[inline]
+pub const fn bit_at(x: usize) -> u64 {
+    1u64 << wrap_x(x)
+}
+
+#[inline]
+pub fn elevation_at(env: &EnvironmentStack, x: usize, y: usize) -> u8 {
+    env.elevation[cell_index(x, y)]
+}
+
+fn downhill_vertical_mask(env: &EnvironmentStack, from_row: usize, to_row: usize) -> u64 {
+    let mut mask = 0u64;
+    for x in 0..WORLD_WIDTH {
+        if elevation_at(env, x, to_row) <= elevation_at(env, x, from_row) {
+            mask |= bit_at(x);
+        }
+    }
+    mask
+}
+
+fn lateral_flow_bits(env: &EnvironmentStack, row: usize, sources: u64, delta: isize) -> u64 {
+    let mut out = 0u64;
+    for x in 0..WORLD_WIDTH {
+        let src_bit = bit_at(x);
+        if sources & src_bit == 0 {
+            continue;
+        }
+        let dest_x = ((x as isize + delta).rem_euclid(WORLD_WIDTH as isize)) as usize;
+        if elevation_at(env, dest_x, row) <= elevation_at(env, x, row) {
+            out |= bit_at(dest_x);
+        }
+    }
+    out
+}
+
+fn lowland_bonus_mask(env: &EnvironmentStack, row: usize) -> u64 {
+    let prev_row = row_above(row);
+    let next_row = row_below(row);
+    let mut mask = 0u64;
+    for x in 0..WORLD_WIDTH {
+        let center = elevation_at(env, x, row);
+        let left_x = (x + WORLD_WIDTH - 1) % WORLD_WIDTH;
+        let right_x = (x + 1) % WORLD_WIDTH;
+        let neighbors = [
+            elevation_at(env, left_x, row),
+            elevation_at(env, right_x, row),
+            elevation_at(env, x, prev_row),
+            elevation_at(env, x, next_row),
+        ];
+        if neighbors.iter().all(|&n| center <= n) && neighbors.iter().any(|&n| center < n) {
+            mask |= bit_at(x);
+        }
+    }
+    mask
 }
 
 impl Default for EnvironmentStack {
@@ -51,6 +136,7 @@ impl Default for EnvironmentStack {
             pressure: [0u64; 16],
             microbiome,
             logic: [0u64; 16],
+            elevation: [0u8; 1024],
             memetics: [0u64; 1024],
         }
     }
@@ -151,37 +237,30 @@ pub fn water_flow_system(mut env: ResMut<EnvironmentStack>) {
 
 pub fn water_flow_step(env: &mut EnvironmentStack) {
     let current = *env;
-    let mut next_water = [0u64; 16];
+    let mut next_water = [0u64; WORLD_HEIGHT];
 
-    for i in 0..16 {
-        let prev_i = (i + 15) % 16;
-        let next_i = (i + 1) % 16;
+    for row in 0..WORLD_HEIGHT {
+        let prev_row = row_above(row);
+        let next_row = row_below(row);
 
-        let w_curr = current.water[i];
-        let w_above = current.water[prev_i];
-        let s_curr = current.structure[i];
-        let s_below = current.structure[next_i];
-        let w_below = current.water[next_i];
+        let w_curr = current.water[row];
+        let w_above = current.water[prev_row];
+        let s_curr = current.structure[row];
+        let s_below = current.structure[next_row];
+        let w_below = current.water[next_row];
 
-        // 1. Gravity: Water bits move down if no structure below
-        let falling_from_above = w_above & !s_curr;
+        // Toroidal manifold: rows wrap vertically and bits wrap horizontally via rotate/mod arithmetic.
+        let falling_from_above =
+            w_above & !s_curr & downhill_vertical_mask(&current, prev_row, row);
         let blocked_at_current = w_curr & s_below;
 
-        // 2. Lateral Flow: If supported (structure or water below), spread left/right
         let supported = s_below | w_below;
         let can_spread = w_curr & supported;
 
-        let l = |x: u64| x.rotate_left(1);
-        let r = |x: u64| x.rotate_right(1);
+        let spread_left = lateral_flow_bits(&current, row, can_spread, 1) & !s_curr & !w_curr;
+        let spread_right = lateral_flow_bits(&current, row, can_spread, -1) & !s_curr & !w_curr;
 
-        let spread_left = l(can_spread) & !s_curr & !w_curr;
-        let spread_right = r(can_spread) & !s_curr & !w_curr;
-
-        // Water stays if it's blocked below OR if it didn't spread (simplified for bitwise)
-        // Actually, bits move, so we must be careful not to create water.
-        // For lateral flow in a bitboard, we "leak" into neighbors.
-
-        next_water[i] |= falling_from_above | blocked_at_current | spread_left | spread_right;
+        next_water[row] |= falling_from_above | blocked_at_current | spread_left | spread_right;
     }
 
     env.water = next_water;
@@ -224,8 +303,8 @@ pub fn gravity_step(env: &mut EnvironmentStack) {
     let mut next_particle = [0u64; 16];
 
     for i in 0..16 {
-        let prev_i = (i + 15) % 16;
-        let next_i = (i + 1) % 16;
+        let prev_i = row_above(i);
+        let next_i = row_below(i);
 
         let blocked = current.particle[i] & current.structure[next_i];
         let falling_from_above = current.particle[prev_i] & !current.structure[i];
@@ -242,20 +321,17 @@ pub fn pressure_system(mut env: ResMut<EnvironmentStack>) {
 
 pub fn pressure_step(env: &mut EnvironmentStack) {
     let current = *env;
-    let mut next_pressure = [0u64; 16];
+    let mut next_pressure = [0u64; WORLD_HEIGHT];
 
-    next_pressure
-        .par_iter_mut()
-        .enumerate()
-        .for_each(|(i, target)| {
-            let t = current.temperature[i];
-            let s = current.structure[i];
-            let gen = t & s;
-            let l = |x: u64| x.rotate_left(1);
-            let r = |x: u64| x.rotate_right(1);
-            let neighbors = l(current.pressure[i]) | r(current.pressure[i]);
-            *target = current.pressure[i] | gen | neighbors;
-        });
+    for row in 0..WORLD_HEIGHT {
+        let t = current.temperature[row];
+        let s = current.structure[row];
+        let gen = t & s;
+        let neighbors =
+            current.pressure[row].rotate_left(1) | current.pressure[row].rotate_right(1);
+        let lowland_bias = lowland_bonus_mask(&current, row) & current.water[row];
+        next_pressure[row] = current.pressure[row] | gen | neighbors | lowland_bias;
+    }
 
     env.pressure = next_pressure;
 }
@@ -418,12 +494,16 @@ pub fn computation_step(env: &mut EnvironmentStack) {
 /// Microbiome System: Conway's Game of Life (B3/S23) for microbial evolution.
 /// Each tick, the microbiome substrate evolves bitwise.
 pub fn microbiome_system(mut env: ResMut<EnvironmentStack>) {
-    let current = env.microbiome;
-    let mut next = [0u64; 16];
+    microbiome_step(&mut env);
+}
 
-    for i in 0..16 {
-        let prev_i = (i + 15) % 16;
-        let next_i = (i + 1) % 16;
+pub fn microbiome_step(env: &mut EnvironmentStack) {
+    let current = env.microbiome;
+    let mut next = [0u64; WORLD_HEIGHT];
+
+    for i in 0..WORLD_HEIGHT {
+        let prev_i = row_above(i);
+        let next_i = row_below(i);
 
         let m_prev = current[prev_i];
         let m_curr = current[i];
@@ -539,6 +619,69 @@ mod tests {
 
         assert_eq!(env.logic[2] & 0b01, 0b01);
         assert_eq!(env.biomass[2] & 0b01, 0);
+    }
+
+    #[test]
+    fn test_microbiome_glider_wraps_horizontal() {
+        let mut env = EnvironmentStack::default();
+        env.microbiome = [0u64; WORLD_HEIGHT];
+        env.microbiome[0] = bit_at(62);
+        env.microbiome[1] = bit_at(63);
+        env.microbiome[2] = bit_at(61) | bit_at(62) | bit_at(63);
+
+        for _ in 0..4 {
+            microbiome_step(&mut env);
+        }
+
+        assert_eq!(env.microbiome[1], bit_at(63));
+        assert_eq!(env.microbiome[2], bit_at(0));
+        assert_eq!(env.microbiome[3], bit_at(62) | bit_at(63) | bit_at(0));
+    }
+
+    #[test]
+    fn test_microbiome_glider_wraps_vertical() {
+        let mut env = EnvironmentStack::default();
+        env.microbiome = [0u64; WORLD_HEIGHT];
+        env.microbiome[14] = bit_at(2);
+        env.microbiome[15] = bit_at(3);
+        env.microbiome[0] = bit_at(1) | bit_at(2) | bit_at(3);
+
+        for _ in 0..4 {
+            microbiome_step(&mut env);
+        }
+
+        assert_eq!(env.microbiome[15], bit_at(3));
+        assert_eq!(env.microbiome[0], bit_at(4));
+        assert_eq!(env.microbiome[1], bit_at(2) | bit_at(3) | bit_at(4));
+    }
+
+    #[test]
+    fn test_water_respects_elevation_gradient() {
+        let mut env = EnvironmentStack::default();
+        env.water = [0u64; WORLD_HEIGHT];
+        env.structure = [0u64; WORLD_HEIGHT];
+        env.biomass = [0u64; WORLD_HEIGHT];
+        env.water[8] = bit_at(8);
+        env.elevation[cell_index(8, 8)] = 10;
+        env.elevation[cell_index(8, 9)] = 9;
+
+        water_flow_step(&mut env);
+        assert_eq!(env.water[9], bit_at(8));
+    }
+
+    #[test]
+    fn test_pressure_prefers_lowlands() {
+        let mut env = EnvironmentStack::default();
+        env.pressure = [0u64; WORLD_HEIGHT];
+        env.water[5] = bit_at(5);
+        env.elevation[cell_index(4, 5)] = 4;
+        env.elevation[cell_index(5, 5)] = 1;
+        env.elevation[cell_index(6, 5)] = 4;
+        env.elevation[cell_index(5, 4)] = 4;
+        env.elevation[cell_index(5, 6)] = 4;
+
+        pressure_step(&mut env);
+        assert_eq!(env.pressure[5] & bit_at(5), bit_at(5));
     }
 
     #[test]

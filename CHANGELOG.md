@@ -3,6 +3,11 @@
 ## Unreleased
 - Pending changes.
 
+## v0.5.0 - 2026-04-01
+- Hardened release provenance to publish canonical GitHub prereleases.
+- Converted substrate CA logic to an explicit toroidal manifold with periodic boundary conditions.
+- Added a static elevation layer to telemetry, world hashing, terrain-coupled water and pressure, and Braille curvature projection in the TUI.
+
 ## v0.4.0 - 2026-04-01
 - Added a ninth logic substrate layer with NAND-gate and vertical-wire computation rules.
 - Enabled semiconductor clock pulses from Bit 128 technology holders, with biomass-coupled logic energy costs.

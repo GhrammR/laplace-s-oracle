@@ -62,11 +62,12 @@ pub struct TelemetryFrame {
     pub pressure: [u64; 16],
     pub microbiome: [u64; 16],
     pub logic: [u64; 16],
+    pub elevation: [u8; 1024],
     pub memetics: [u64; 1024],
     pub signature: [u8; 64],
 }
 
-const FRAME_SIZE: usize = 9408;
+const FRAME_SIZE: usize = 10432;
 
 pub struct History {
     pub data: [u64; 256],
@@ -405,6 +406,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     pressure,
                     microbiome,
                     logic,
+                    elevation,
                     memetics,
                 ) = unpack_env(&buf);
                 let frame = TelemetryFrame {
@@ -424,11 +426,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                     pressure,
                     microbiome,
                     logic,
+                    elevation,
                     memetics,
-                    signature: buf[9344..9408].try_into().unwrap(),
+                    signature: buf[10368..10432].try_into().unwrap(),
                 };
                 let valid = vk
-                    .verify(&buf[4..9344], &Signature::from_bytes(&frame.signature))
+                    .verify(&buf[4..10368], &Signature::from_bytes(&frame.signature))
                     .is_ok();
                 if valid {
                     let _ = tx.send(RenderEvent::Telemetry(Box::new(frame), valid));
@@ -531,18 +534,21 @@ fn unpack_env(
     [u64; 16],
     [u64; 16],
     [u64; 16],
+    [u8; 1024],
     [u64; 1024],
 ) {
     let mut out_bits = [[0u64; 16]; 8];
-    for l in 0..7 {
+    for l in 0..8 {
         for i in 0..16 {
             let start = 128 + l * 128 + i * 8;
             out_bits[l][i] = u64::from_le_bytes(buf[start..start + 8].try_into().unwrap());
         }
     }
+    let mut out_elevation = [0u8; 1024];
+    out_elevation.copy_from_slice(&buf[1152..2176]);
     let mut out_memetics = [0u64; 1024];
     for i in 0..1024 {
-        let start = 1152 + i * 8;
+        let start = 2176 + i * 8;
         out_memetics[i] = u64::from_le_bytes(buf[start..start + 8].try_into().unwrap());
     }
     (
@@ -554,6 +560,7 @@ fn unpack_env(
         out_bits[5],
         out_bits[6],
         out_bits[7],
+        out_elevation,
         out_memetics,
     )
 }
@@ -568,6 +575,30 @@ fn cleanup_terminal<B: Backend + Write>(t: &mut Terminal<B>) -> io::Result<()> {
 fn culture_bit(sequence: [u64; 4], x: usize) -> bool {
     let motif = (sequence[0] & 0xFF) as u8;
     ((motif >> (x % 8)) & 1) == 1
+}
+
+fn elevation_at(frame: &TelemetryFrame, x: usize, y: usize) -> u8 {
+    frame.elevation[y * 64 + x]
+}
+
+fn terrain_glyph(elevation: u8) -> char {
+    match elevation {
+        0 => ' ',
+        1..=63 => '\u{2801}',
+        64..=127 => '\u{2803}',
+        128..=191 => '\u{2807}',
+        _ => '\u{28FF}',
+    }
+}
+
+fn active_braille_glyph(elevation: u8) -> char {
+    match elevation {
+        0 => '?',
+        1..=63 => '\u{2801}',
+        64..=127 => '\u{2803}',
+        128..=191 => '\u{2807}',
+        _ => '\u{28FF}',
+    }
 }
 
 fn layer_bit(frame: &TelemetryFrame, layer: VisualLayer, x: usize, y: usize) -> bool {
@@ -594,22 +625,22 @@ fn primary_glyph(frame: &TelemetryFrame, layer: VisualLayer, x: usize, y: usize)
             ];
             chars[(hash % chars.len() as u64) as usize]
         }
-        VisualLayer::Logic => '*',
+        VisualLayer::Logic => '\u{26A1}',
         VisualLayer::Culture => {
             if culture_bit(frame.apex_linguistic_sequence, x) {
-                '#'
+                active_braille_glyph(elevation_at(frame, x, y))
             } else {
-                '.'
+                terrain_glyph(elevation_at(frame, x, y))
             }
         }
-        _ => '#',
+        _ => active_braille_glyph(elevation_at(frame, x, y)),
     }
 }
 
 fn reference_glyph(layer: VisualLayer) -> char {
     match layer {
-        VisualLayer::Logic => '*',
-        VisualLayer::Culture => '.',
+        VisualLayer::Logic => '\u{26A1}',
+        VisualLayer::Culture => '+',
         _ => '+',
     }
 }
@@ -640,7 +671,7 @@ fn render_bitboard(frame: &TelemetryFrame, state: &TuiState) -> String {
                     output.push(' ');
                 }
             } else {
-                output.push(' ');
+                output.push(terrain_glyph(elevation_at(frame, x, y)));
             }
         }
         output.push('\n');

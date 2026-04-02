@@ -4,7 +4,7 @@
 #![forbid(unsafe_code)]
 
 use crate::intelligence::EnvironmentData;
-use crate::physics::EnvironmentStack;
+use crate::physics::{row_above, row_below, EnvironmentStack, WORLD_HEIGHT};
 use bevy_ecs::prelude::{Component, ResMut};
 use rayon::prelude::*;
 
@@ -101,13 +101,15 @@ pub fn life_system(mut env_stack: ResMut<EnvironmentStack>, mut env_data: ResMut
 /// Executes a bitwise cellular automata step across the Biomass layer of EnvironmentStack.
 pub fn life_step(env_stack: &mut EnvironmentStack, env_data: &mut EnvironmentData) {
     let current = env_stack.biomass;
-    let mut next = [0u64; 16];
+    let mut next = [0u64; WORLD_HEIGHT];
 
     // Parallelize processing using rayon for the row transitions.
     next.par_iter_mut().enumerate().for_each(|(i, target)| {
-        let prev = current[(i + 15) % 16];
+        // The biosphere lives on a 64x16 torus: horizontal neighbors rotate in-row and
+        // vertical neighbors wrap across row 15 -> 0 and 0 -> 15.
+        let prev = current[row_above(i)];
         let curr = current[i];
-        let next_r = current[(i + 1) % 16];
+        let next_r = current[row_below(i)];
 
         // Horizontal shifts with wrap-around
         let l = |x: u64| x.rotate_left(1);
@@ -124,9 +126,9 @@ pub fn life_step(env_stack: &mut EnvironmentStack, env_data: &mut EnvironmentDat
         let n8 = r(next_r);
 
         // ── Water Proximity (Thirst Gate) ──
-        let w_prev = env_stack.water[(i + 15) % 16];
+        let w_prev = env_stack.water[row_above(i)];
         let w_curr = env_stack.water[i];
-        let w_next = env_stack.water[(i + 1) % 16];
+        let w_next = env_stack.water[row_below(i)];
 
         let water_3x3 = l(w_prev)
             | w_prev
