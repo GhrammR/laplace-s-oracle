@@ -3,6 +3,11 @@
 ## Unreleased
 - Pending changes.
 
+## v0.11.0 - 2026-04-02
+- Replaced the linear stellar band with a deterministic orbital system driven by a tick-zero celestial seed and integer sine lookup tables.
+- Added celestial telemetry state and Panopticon header decoding for star type, season, and tide level.
+- Seeded new orbital and workflow hypotheses into the persistent innovation ledger.
+
 ## v0.10.0 - 2026-04-02
 - Expanded the miracle bridge with direct operator control over logic, light, memetics, pressure, elevation, and structure excavation.
 - Added matching Panopticon slash commands so the God-Lens can manipulate existing substrate layers without external file edits.

@@ -68,10 +68,11 @@ pub struct TelemetryFrame {
     pub memetics: [u64; 1024],
     pub wormhole_activity: u8,
     pub singularity_index: u16,
+    pub celestial_state: u64,
     pub signature: [u8; 64],
 }
 
-const FRAME_SIZE: usize = 10563;
+const FRAME_SIZE: usize = 10571;
 
 pub struct History {
     pub data: [u64; 256],
@@ -605,10 +606,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                     memetics,
                     wormhole_activity: buf[10496],
                     singularity_index: u16::from_le_bytes(buf[10497..10499].try_into().unwrap()),
-                    signature: buf[10499..10563].try_into().unwrap(),
+                    celestial_state: u64::from_le_bytes(buf[10499..10507].try_into().unwrap()),
+                    signature: buf[10507..10571].try_into().unwrap(),
                 };
                 let valid = vk
-                    .verify(&buf[4..10499], &Signature::from_bytes(&frame.signature))
+                    .verify(&buf[4..10507], &Signature::from_bytes(&frame.signature))
                     .is_ok();
                 if valid {
                     let _ = tx.send(RenderEvent::Telemetry(Box::new(frame), valid));
@@ -769,6 +771,37 @@ fn season_name(tick: u64) -> &'static str {
     }
 }
 
+fn celestial_star_name(celestial_state: u64) -> &'static str {
+    match u8::try_from((celestial_state >> 32) & 0xFF).unwrap_or(0) {
+        0 => "Main Sequence",
+        1 => "Red Dwarf",
+        2 => "Blue Giant",
+        3 => "White Dwarf",
+        4 => "Binary",
+        5 => "Neutron",
+        6 => "Black Hole",
+        _ => "Rogue",
+    }
+}
+
+fn celestial_season_name(celestial_state: u64) -> &'static str {
+    match u8::try_from((celestial_state >> 16) & 0xFF).unwrap_or(0) {
+        0 => "Spring",
+        1 => "Summer",
+        2 => "Autumn",
+        _ => "Winter",
+    }
+}
+
+fn celestial_tide_name(celestial_state: u64) -> &'static str {
+    match u8::try_from((celestial_state >> 24) & 0xFF).unwrap_or(0) {
+        0 => "Low",
+        1 => "Rising",
+        2 => "High",
+        _ => "Extreme",
+    }
+}
+
 fn elevation_at(frame: &TelemetryFrame, x: usize, y: usize) -> u8 {
     frame.elevation[y * 64 + x]
 }
@@ -913,15 +946,16 @@ fn ui(f: &mut Frame, last: &Option<(TelemetryFrame, bool)>, history: &History, s
             Constraint::Length(1),
         ])
         .split(f.area());
-    let (t, h, s, st, omega) = match last {
+    let (t, h, s, st, omega, celestial) = match last {
         Some((fr, v)) => (
             fr.tick,
             fr.world_hash,
             if *v { "VERIFIED" } else { "INVALID" },
             if *v { Color::Green } else { Color::Red },
             fr.singularity_index,
+            fr.celestial_state,
         ),
-        None => (0, [0u8; 32], "WAITING", Color::Yellow, 0),
+        None => (0, [0u8; 32], "WAITING", Color::Yellow, 0, 0),
     };
     let header = Line::from(vec![
         Span::styled("Tick: ", Style::default().fg(Color::Gray)),
@@ -937,7 +971,22 @@ fn ui(f: &mut Frame, last: &Option<(TelemetryFrame, bool)>, history: &History, s
         Span::styled(hex::encode(h), Style::default().fg(Color::White)),
         Span::raw(" | Status: "),
         Span::styled(s, Style::default().fg(st).bold()),
-        Span::raw(" | Dropped: "),
+        Span::raw(" | [ Star: "),
+        Span::styled(
+            celestial_star_name(celestial),
+            Style::default().fg(Color::LightYellow).bold(),
+        ),
+        Span::raw(" | Season: "),
+        Span::styled(
+            celestial_season_name(celestial),
+            Style::default().fg(Color::Cyan).bold(),
+        ),
+        Span::raw(" | Tide: "),
+        Span::styled(
+            celestial_tide_name(celestial),
+            Style::default().fg(Color::LightBlue).bold(),
+        ),
+        Span::raw(" ] | Dropped: "),
         Span::styled(
             state.dropped_frames.to_string(),
             Style::default().fg(Color::Red),

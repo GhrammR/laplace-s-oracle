@@ -15,6 +15,7 @@ use bevy_ecs::prelude::*;
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 
+use crate::math::{phase_u8, sine_u8, SINE_SCALE};
 use crate::telemetry::{Tick, WorldHash};
 
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,6 +36,24 @@ pub struct EnvironmentStack {
 
 pub const WORLD_WIDTH: usize = 64;
 pub const WORLD_HEIGHT: usize = 16;
+
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct CelestialSeed(pub u64);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CelestialFrame {
+    pub star_type: u8,
+    pub season: u8,
+    pub tide_level: u8,
+    pub day: u16,
+    pub sun_center: usize,
+    pub sun_thickness: usize,
+    pub light_start: usize,
+    pub light_width: usize,
+    pub moon_row: usize,
+    pub tide_direction_left: bool,
+    pub tide_width: usize,
+}
 
 #[inline]
 pub const fn wrap_x(x: usize) -> usize {
@@ -117,6 +136,82 @@ fn lowland_bonus_mask(env: &EnvironmentStack, row: usize) -> u64 {
     mask
 }
 
+pub fn celestial_seed_from_hash(hash: [u8; 32]) -> CelestialSeed {
+    let mut folded = 0u64;
+    for chunk in hash.chunks_exact(8) {
+        folded ^= u64::from_le_bytes(chunk.try_into().unwrap());
+    }
+    CelestialSeed(if folded == 0 {
+        0x1BAD_C0DE_F00D_BAAD
+    } else {
+        folded
+    })
+}
+
+pub fn orbital_period(seed: CelestialSeed) -> u16 {
+    let derived = u16::try_from((seed.0 >> 8) & 0xFF).unwrap_or(64);
+    derived.max(64)
+}
+
+pub fn celestial_frame(seed: CelestialSeed, tick: u64) -> CelestialFrame {
+    let star_type = u8::try_from(seed.0 & 0x7).unwrap_or(0);
+    let axial_tilt = i32::try_from((seed.0 >> 3) & 0x1F).unwrap_or(0);
+    let orbital_period = orbital_period(seed);
+    let orbital_period_u64 = u64::from(orbital_period);
+    let solar_phase = phase_u8(tick, orbital_period);
+    let season_phase = solar_phase.wrapping_add(u8::try_from((seed.0 >> 16) & 0xFF).unwrap_or(0));
+    let moon_phase = solar_phase
+        .wrapping_add(u8::try_from((seed.0 >> 24) & 0x7F).unwrap_or(0))
+        .wrapping_add(32);
+    let season_wave = sine_u8(season_phase);
+    let sun_wave = sine_u8(solar_phase);
+    let moon_wave = sine_u8(moon_phase);
+
+    let amplitude = 2 + (axial_tilt / 10);
+    let center_i32 = (7 + ((sun_wave * amplitude) / SINE_SCALE))
+        .clamp(0, i32::try_from(WORLD_HEIGHT - 1).unwrap_or(15));
+    let thickness_i32 = (1 + ((season_wave.abs() * (2 + axial_tilt / 8)) / SINE_SCALE)).clamp(1, 5);
+    let light_start = (usize::from(solar_phase) * WORLD_WIDTH) / 256;
+    let light_width = match star_type {
+        0 => 20,
+        1 => 32,
+        2 => 44,
+        3 => 18,
+        4 => 28,
+        5 => 36,
+        6 => 12,
+        _ => 24,
+    };
+    let moon_row_i32 = (7 + ((moon_wave * 3) / SINE_SCALE))
+        .clamp(0, i32::try_from(WORLD_HEIGHT - 1).unwrap_or(15));
+    let tide_level_i32 = ((moon_wave.abs() * 3) / SINE_SCALE).clamp(0, 3);
+    let season =
+        u8::try_from(((tick / orbital_period_u64) + ((seed.0 >> 32) & 0x3)) % 4).unwrap_or(0);
+    let day = u16::try_from(tick % orbital_period_u64).unwrap_or(u16::MAX);
+
+    CelestialFrame {
+        star_type,
+        season,
+        tide_level: u8::try_from(tide_level_i32).unwrap_or(0),
+        day,
+        sun_center: usize::try_from(center_i32).unwrap_or(0),
+        sun_thickness: usize::try_from(thickness_i32).unwrap_or(1),
+        light_start,
+        light_width,
+        moon_row: usize::try_from(moon_row_i32).unwrap_or(0),
+        tide_direction_left: moon_wave >= 0,
+        tide_width: 8 + (usize::try_from(tide_level_i32).unwrap_or(0) * 4),
+    }
+}
+
+pub fn celestial_state(seed: CelestialSeed, tick: u64) -> u64 {
+    let frame = celestial_frame(seed, tick);
+    u64::from(frame.day)
+        | (u64::from(frame.season) << 16)
+        | (u64::from(frame.tide_level) << 24)
+        | (u64::from(frame.star_type) << 32)
+}
+
 fn deterministic_reseed_coords(seed: [u8; 32], salt: usize) -> [usize; 4] {
     let mut coords = [0usize; 4];
     for lane in 0..4 {
@@ -136,15 +231,6 @@ fn seed_layer_bits(layer: &mut [u64; WORLD_HEIGHT], coords: [usize; 4]) {
         let row = coord / WORLD_WIDTH;
         let x = coord % WORLD_WIDTH;
         layer[row] |= bit_at(x);
-    }
-}
-
-fn seasonal_light_width(orbital_row: usize) -> usize {
-    match orbital_row / 4 {
-        0 => 24,
-        1 => 40,
-        2 => 32,
-        _ => 16,
     }
 }
 
@@ -341,18 +427,36 @@ pub fn water_flow_step(env: &mut EnvironmentStack) {
     env.water = next_water;
 }
 
-pub fn stellar_system(tick: Res<Tick>, mut env: ResMut<EnvironmentStack>) {
-    stellar_step(&mut env, tick.0);
+pub fn orbital_system(
+    tick: Res<Tick>,
+    celestial_seed: Res<CelestialSeed>,
+    mut env: ResMut<EnvironmentStack>,
+) {
+    orbital_step(&mut env, *celestial_seed, tick.0);
 }
 
-pub fn stellar_step(env: &mut EnvironmentStack, tick: u64) {
-    let orbital_row = ((tick / 1000) % WORLD_HEIGHT as u64) as usize;
-    let hour = (tick % 1000) as usize;
-    let width = seasonal_light_width(orbital_row);
-    let drift_start = (hour * WORLD_WIDTH) / 1000;
+pub fn orbital_step(env: &mut EnvironmentStack, celestial_seed: CelestialSeed, tick: u64) {
+    let frame = celestial_frame(celestial_seed, tick);
+    let light_mask = wrapped_band_mask(frame.light_start, frame.light_width);
 
     env.light = [0u64; WORLD_HEIGHT];
-    env.light[orbital_row] = wrapped_band_mask(drift_start, width);
+    for offset in 0..frame.sun_thickness {
+        let row =
+            (frame.sun_center + WORLD_HEIGHT + offset - (frame.sun_thickness / 2)) % WORLD_HEIGHT;
+        env.light[row] = light_mask;
+    }
+
+    let tide_start = (frame.light_start + WORLD_WIDTH / 2) % WORLD_WIDTH;
+    let tide_mask = wrapped_band_mask(tide_start, frame.tide_width);
+    env.pressure[frame.moon_row] |= tide_mask;
+
+    let tidal_water = env.water[frame.moon_row] & tide_mask;
+    let shifted = if frame.tide_direction_left {
+        tidal_water.rotate_left(1)
+    } else {
+        tidal_water.rotate_right(1)
+    };
+    env.water[frame.moon_row] = (env.water[frame.moon_row] & !tide_mask) | (shifted & tide_mask);
 }
 
 /// Hydrologic Cycle System: Evaporation-Precipitation cycle.
@@ -777,17 +881,16 @@ mod tests {
     }
 
     #[test]
-    fn test_stellar_band_tracks_orbit_and_drift() {
-        let mut env = EnvironmentStack::default();
-        stellar_step(&mut env, 4_500);
+    fn test_deterministic_orbit() {
+        let seed = CelestialSeed(0x1234_5678_90AB_CDEF);
+        let mut env_a = EnvironmentStack::default();
+        let mut env_b = EnvironmentStack::default();
 
-        assert!(env.light.iter().enumerate().all(|(row, bits)| if row == 4 {
-            *bits != 0
-        } else {
-            *bits == 0
-        }));
-        assert_eq!(env.light[4].count_ones(), 40);
-        assert_eq!(env.light[4] & bit_at(32), bit_at(32));
+        orbital_step(&mut env_a, seed, 1_000);
+        orbital_step(&mut env_b, seed, 1_000);
+
+        assert_eq!(env_a.light, env_b.light);
+        assert_eq!(env_a.pressure, env_b.pressure);
     }
 
     #[test]

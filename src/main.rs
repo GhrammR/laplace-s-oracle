@@ -292,6 +292,7 @@ fn main() {
     world.insert_resource(RngResource::from_seed(initial_hash));
     world.insert_resource(EnvironmentData::default());
     world.insert_resource(EnvironmentStack::default());
+    world.insert_resource(CelestialSeed::default());
     world.insert_resource(StdoutResource(stdout));
     world.insert_resource(TemporalState::default());
     world.insert_resource(WormholeActivity::default());
@@ -313,6 +314,12 @@ fn main() {
         linguistic_sequence_from_taxonomy(Taxonomy(0)),
         Action::Idle,
     ));
+
+    let mut init_schedule = Schedule::default();
+    init_schedule.add_systems(hash_update_system);
+    init_schedule.run(&mut world);
+    let tick_zero_hash = world.resource::<WorldHash>().0;
+    world.insert_resource(celestial_seed_from_hash(tick_zero_hash));
 
     let mut schedule = Schedule::default();
     schedule.configure_sets(
@@ -347,7 +354,7 @@ fn main() {
                 microbiome_system,
                 pressure_system,
                 computation_system,
-                stellar_system,
+                orbital_system,
                 wind_system,
                 vortex_system,
                 volcanic_eruption_system,

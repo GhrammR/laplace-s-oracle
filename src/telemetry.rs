@@ -1,6 +1,6 @@
 //! Verifiable Telemetry Pipeline for the Laplace Oracle.
 //!
-//! BINARY PROTOCOL SPECIFICATION (10563 bytes total):
+//! BINARY PROTOCOL SPECIFICATION (10571 bytes total):
 //! 00-03: [u8; 4] (Sync: 0xAA, 0xBB, 0xCC, 0xDD)
 //! 04-11: u64 (Tick)
 //! 12-19: u64 (LastTick)
@@ -12,14 +12,15 @@
 //! 128-10495: EnvironmentStack payload
 //! 10496: u8 (Wormhole activity)
 //! 10497-10498: u16 (Singularity Index, hundredths of a percent)
-//! 10499-10562: [u8; 64] (Ed25519 Signature)
+//! 10499-10506: u64 (Celestial State)
+//! 10507-10570: [u8; 64] (Ed25519 Signature)
 
 #![allow(unknown_lints)]
 #![deny(clippy::all)]
 #![forbid(unsafe_code)]
 
 use crate::intelligence::{LinguisticSequence, SimHashBrain, TechnologyMask};
-use crate::physics::EnvironmentStack;
+use crate::physics::{celestial_state, CelestialSeed, EnvironmentStack};
 use crate::temporal::Population;
 use crate::wormhole::WormholeActivity;
 use bevy_ecs::prelude::*;
@@ -40,12 +41,13 @@ pub struct TelemetryFrame {
     pub stack: EnvironmentStack,
     pub wormhole_activity: u8,
     pub singularity_index: u16,
+    pub celestial_state: u64,
     pub signature: [u8; 64],
 }
 
 pub const SYNC_HEADER: [u8; 4] = [0xAA, 0xBB, 0xCC, 0xDD];
-pub const PAYLOAD_SIZE: usize = 10495;
-pub const FRAME_SIZE: usize = 10563;
+pub const PAYLOAD_SIZE: usize = 10503;
+pub const FRAME_SIZE: usize = 10571;
 
 fn singularity_index_value(tick: u64, apex_tech_bits: u32) -> u16 {
     let tech_component = (apex_tech_bits as f32 / 256.0) * 50.0;
@@ -103,7 +105,8 @@ impl TelemetryFrame {
 
         buf[10496] = self.wormhole_activity;
         buf[10497..10499].copy_from_slice(&self.singularity_index.to_le_bytes());
-        buf[10499..10563].copy_from_slice(&self.signature);
+        buf[10499..10507].copy_from_slice(&self.celestial_state.to_le_bytes());
+        buf[10507..10571].copy_from_slice(&self.signature);
         buf
     }
 }
@@ -140,6 +143,7 @@ pub fn observation_system(
     hash: Res<WorldHash>,
     stack: Res<EnvironmentStack>,
     mut wormhole_activity: ResMut<WormholeActivity>,
+    celestial_seed: Res<CelestialSeed>,
     q: Query<(
         &Population,
         &SimHashBrain,
@@ -182,11 +186,12 @@ pub fn observation_system(
         stack: *stack,
         wormhole_activity: wormhole_activity.0,
         singularity_index: singularity_index_value(tick.0, apex_tech_bits),
+        celestial_state: celestial_state(*celestial_seed, tick.0),
         signature: [0u8; 64],
     };
 
     let buffer_tmp = frame.as_bytes();
-    let data_to_sign = &buffer_tmp[4..10499];
+    let data_to_sign = &buffer_tmp[4..10507];
     frame.signature = signing_key.0.sign(data_to_sign).to_bytes();
 
     let final_buffer = frame.as_bytes();

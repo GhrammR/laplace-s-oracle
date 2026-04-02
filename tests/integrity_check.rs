@@ -132,8 +132,8 @@ fn test_determinism_after_leap() {
 
 #[test]
 fn telemetry_frame_size_seal() {
-    assert_eq!(std::mem::size_of::<TelemetryFrame>(), 10563);
-    println!("[PASS] TelemetryFrame size is exactly 10563 bytes");
+    assert_eq!(std::mem::size_of::<TelemetryFrame>(), 10571);
+    println!("[PASS] TelemetryFrame size is exactly 10571 bytes");
 }
 
 #[test]
@@ -528,12 +528,14 @@ fn test_telemetry_elevation_offsets() {
         stack: EnvironmentStack::default(),
         wormhole_activity: 0,
         singularity_index: 0,
+        celestial_state: 0,
         signature: [0u8; 64],
     };
     frame.stack.light[2] = 1u64 << 9;
     frame.stack.elevation[17] = 9;
     frame.wormhole_activity = 3;
     frame.singularity_index = 4_321;
+    frame.celestial_state = 0x0102_0003_0000_0004;
     let bytes = frame.as_bytes();
     let light_word = u64::from_le_bytes(bytes[1152 + 16..1152 + 24].try_into().unwrap());
     assert_eq!(light_word, 1u64 << 9);
@@ -542,6 +544,10 @@ fn test_telemetry_elevation_offsets() {
     assert_eq!(
         u16::from_le_bytes(bytes[10497..10499].try_into().unwrap()),
         4_321
+    );
+    assert_eq!(
+        u64::from_le_bytes(bytes[10499..10507].try_into().unwrap()),
+        0x0102_0003_0000_0004
     );
 }
 

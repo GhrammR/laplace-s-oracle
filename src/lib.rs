@@ -3,6 +3,7 @@ pub mod events;
 pub mod evolution;
 pub mod intelligence;
 pub mod ipc;
+pub mod math;
 pub mod physics;
 pub mod taxonomy_decoder;
 pub mod telemetry;
