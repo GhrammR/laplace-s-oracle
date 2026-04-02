@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 [ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
+export PATH="$HOME/.local/bin:$PATH"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="${1:?usage: ./ci/release.sh <version>}"
+ARTIFACT_DIR="$ROOT/.artifacts/release"
+COMMIT_MESSAGE_FILE="$ARTIFACT_DIR/release-commit-message.txt"
+NOTES_FILE="$ARTIFACT_DIR/release-notes.txt"
 
-mkdir -p "$ROOT/.artifacts"
+mkdir -p "$ROOT/.artifacts" "$ARTIFACT_DIR"
 
 require_clean_git() {
   git -C "$ROOT" diff --quiet
@@ -33,8 +37,12 @@ cargo set-version "$VERSION" --manifest-path "$ROOT/Cargo.toml"
 "$ROOT/ci/audit.sh"
 
 grep -q "^## v$VERSION - " "$ROOT/CHANGELOG.md"
+printf 'release: v%s
+' "$VERSION" > "$COMMIT_MESSAGE_FILE"
+printf 'Pre-release v%s
+' "$VERSION" > "$NOTES_FILE"
 
 git -C "$ROOT" add Cargo.toml Cargo.lock CHANGELOG.md
-git -C "$ROOT" commit -m "release: v$VERSION"
+git -C "$ROOT" commit -F "$COMMIT_MESSAGE_FILE"
 git -C "$ROOT" tag "v$VERSION"
-gh release create "v$VERSION" --prerelease --generate-notes --title "v$VERSION" --notes "Pre-release v$VERSION"
+gh release create "v$VERSION" --prerelease --generate-notes --title "v$VERSION" --notes-file "$NOTES_FILE"
