@@ -37,4 +37,4 @@ grep -q "^## v$VERSION - " "$ROOT/CHANGELOG.md"
 git -C "$ROOT" add Cargo.toml Cargo.lock CHANGELOG.md
 git -C "$ROOT" commit -m "release: v$VERSION"
 git -C "$ROOT" tag "v$VERSION"
-gh release create "v$VERSION" --draft --generate-notes --title "v$VERSION"
+gh release create "v$VERSION" --prerelease --generate-notes --title "v$VERSION" --notes "Pre-release v$VERSION"
