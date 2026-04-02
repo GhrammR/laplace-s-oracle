@@ -61,11 +61,12 @@ pub struct TelemetryFrame {
     pub particle: [u64; 16],
     pub pressure: [u64; 16],
     pub microbiome: [u64; 16],
+    pub logic: [u64; 16],
     pub memetics: [u64; 1024],
     pub signature: [u8; 64],
 }
 
-const FRAME_SIZE: usize = 9280;
+const FRAME_SIZE: usize = 9408;
 
 pub struct History {
     pub data: [u64; 256],
@@ -116,6 +117,7 @@ enum VisualLayer {
     Pressure,
     Microbiome,
     Memetics,
+    Logic,
     Culture,
 }
 
@@ -129,7 +131,8 @@ impl VisualLayer {
             Self::Particle => Self::Pressure,
             Self::Pressure => Self::Microbiome,
             Self::Microbiome => Self::Memetics,
-            Self::Memetics => Self::Culture,
+            Self::Memetics => Self::Logic,
+            Self::Logic => Self::Culture,
             Self::Culture => Self::Biomass,
         }
     }
@@ -401,6 +404,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     particle,
                     pressure,
                     microbiome,
+                    logic,
                     memetics,
                 ) = unpack_env(&buf);
                 let frame = TelemetryFrame {
@@ -419,11 +423,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                     particle,
                     pressure,
                     microbiome,
+                    logic,
                     memetics,
-                    signature: buf[9216..9280].try_into().unwrap(),
+                    signature: buf[9344..9408].try_into().unwrap(),
                 };
                 let valid = vk
-                    .verify(&buf[4..9184], &Signature::from_bytes(&frame.signature))
+                    .verify(&buf[4..9344], &Signature::from_bytes(&frame.signature))
                     .is_ok();
                 if valid {
                     let _ = tx.send(RenderEvent::Telemetry(Box::new(frame), valid));
@@ -525,9 +530,10 @@ fn unpack_env(
     [u64; 16],
     [u64; 16],
     [u64; 16],
+    [u64; 16],
     [u64; 1024],
 ) {
-    let mut out_bits = [[0u64; 16]; 7];
+    let mut out_bits = [[0u64; 16]; 8];
     for l in 0..7 {
         for i in 0..16 {
             let start = 128 + l * 128 + i * 8;
@@ -536,7 +542,7 @@ fn unpack_env(
     }
     let mut out_memetics = [0u64; 1024];
     for i in 0..1024 {
-        let start = 992 + i * 8;
+        let start = 1152 + i * 8;
         out_memetics[i] = u64::from_le_bytes(buf[start..start + 8].try_into().unwrap());
     }
     (
@@ -547,6 +553,7 @@ fn unpack_env(
         out_bits[4],
         out_bits[5],
         out_bits[6],
+        out_bits[7],
         out_memetics,
     )
 }
@@ -573,6 +580,7 @@ fn layer_bit(frame: &TelemetryFrame, layer: VisualLayer, x: usize, y: usize) -> 
         VisualLayer::Pressure => (frame.pressure[y] >> x) & 1 == 1,
         VisualLayer::Microbiome => (frame.microbiome[y] >> x) & 1 == 1,
         VisualLayer::Memetics => frame.memetics[y * 64 + x] != 0,
+        VisualLayer::Logic => (frame.logic[y] >> x) & 1 == 1,
         VisualLayer::Culture => culture_bit(frame.apex_linguistic_sequence, x),
     }
 }
@@ -586,6 +594,7 @@ fn primary_glyph(frame: &TelemetryFrame, layer: VisualLayer, x: usize, y: usize)
             ];
             chars[(hash % chars.len() as u64) as usize]
         }
+        VisualLayer::Logic => '*',
         VisualLayer::Culture => {
             if culture_bit(frame.apex_linguistic_sequence, x) {
                 '#'
@@ -599,8 +608,17 @@ fn primary_glyph(frame: &TelemetryFrame, layer: VisualLayer, x: usize, y: usize)
 
 fn reference_glyph(layer: VisualLayer) -> char {
     match layer {
+        VisualLayer::Logic => '*',
         VisualLayer::Culture => '.',
         _ => '+',
+    }
+}
+
+fn bitboard_color(state: &TuiState) -> Color {
+    if matches!(state.primary_layer, VisualLayer::Logic) {
+        Color::Yellow
+    } else {
+        Color::White
     }
 }
 
@@ -730,12 +748,14 @@ fn ui(f: &mut Frame, last: &Option<(TelemetryFrame, bool)>, history: &History, s
         format!(" Bitboard [{:?}] ", state.primary_layer)
     };
     f.render_widget(
-        Paragraph::new(bb).block(
-            Block::default()
-                .title(title)
-                .borders(Borders::ALL)
-                .bg(Color::Black),
-        ),
+        Paragraph::new(bb)
+            .style(Style::default().fg(bitboard_color(state)))
+            .block(
+                Block::default()
+                    .title(title)
+                    .borders(Borders::ALL)
+                    .bg(Color::Black),
+            ),
         body[1],
     );
 

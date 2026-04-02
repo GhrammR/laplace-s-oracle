@@ -25,6 +25,7 @@ pub struct EnvironmentStack {
     pub particle: [u64; 16],
     pub pressure: [u64; 16],
     pub microbiome: [u64; 16],
+    pub logic: [u64; 16],
     pub memetics: [u64; 1024],
 }
 
@@ -49,6 +50,7 @@ impl Default for EnvironmentStack {
             particle: [0u64; 16],
             pressure: [0u64; 16],
             microbiome,
+            logic: [0u64; 16],
             memetics: [0u64; 1024],
         }
     }
@@ -363,6 +365,56 @@ pub fn vortex_step(env: &mut EnvironmentStack) {
     }
 }
 
+pub fn computation_system(mut env: ResMut<EnvironmentStack>) {
+    computation_step(&mut env);
+}
+
+pub fn computation_step(env: &mut EnvironmentStack) {
+    let current = *env;
+    let mut propagated = current.logic;
+    let mut gate_outputs = [0u64; 16];
+
+    for row in 0..16 {
+        let prev_row = (row + 15) % 16;
+        let next_row = (row + 1) % 16;
+        let wire_mask =
+            current.structure[prev_row] & current.structure[row] & current.structure[next_row];
+        propagated[row] = wire_mask & (current.logic[row] | current.logic[prev_row]);
+    }
+
+    for row in 0..16 {
+        let gate_bottom = (row + 1) % 16;
+        let gate_output_row = (row + 2) % 16;
+        let gate_anchor = current.structure[row]
+            & current.structure[gate_bottom]
+            & current.structure[row].rotate_right(1)
+            & current.structure[gate_bottom].rotate_right(1);
+
+        let input_left = current.logic[(row + 15) % 16] & gate_anchor;
+        let input_right =
+            (current.logic[(row + 15) % 16] & gate_anchor.rotate_left(1)).rotate_right(1);
+        let active_inputs = input_left | input_right;
+        let nand_output = active_inputs & !(input_left & input_right);
+
+        let output_wire_mask = current.structure[(gate_output_row + 15) % 16]
+            & current.structure[gate_output_row]
+            & current.structure[(gate_output_row + 1) % 16];
+        gate_outputs[gate_output_row] |= nand_output & output_wire_mask;
+    }
+
+    let mut next_logic = [0u64; 16];
+    let mut next_biomass = current.biomass;
+    for row in 0..16 {
+        let desired = propagated[row] | gate_outputs[row];
+        let toggles = (current.logic[row] ^ desired) & current.biomass[row];
+        next_logic[row] = current.logic[row] ^ toggles;
+        next_biomass[row] &= !toggles;
+    }
+
+    env.logic = next_logic;
+    env.biomass = next_biomass;
+}
+
 /// Microbiome System: Conway's Game of Life (B3/S23) for microbial evolution.
 /// Each tick, the microbiome substrate evolves bitwise.
 pub fn microbiome_system(mut env: ResMut<EnvironmentStack>) {
@@ -469,6 +521,24 @@ mod tests {
 
         let env = world.resource::<EnvironmentStack>();
         assert_eq!(env.memetics[10 * 64 + 11], 0xDEADBEEF);
+    }
+
+    #[test]
+    fn test_computation_step_nand() {
+        let mut env = EnvironmentStack::default();
+        env.biomass = [u64::MAX; 16];
+
+        env.structure[0] = 0b11;
+        env.structure[1] = 0b11;
+        env.structure[2] = 0b11;
+        env.structure[3] = 0b11;
+
+        env.logic[15] = 0b01;
+
+        computation_step(&mut env);
+
+        assert_eq!(env.logic[2] & 0b01, 0b01);
+        assert_eq!(env.biomass[2] & 0b01, 0);
     }
 
     #[test]

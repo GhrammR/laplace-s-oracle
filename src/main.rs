@@ -79,6 +79,7 @@ fn hash_update_system(
     hasher.update(bytemuck::bytes_of(&env.particle));
     hasher.update(bytemuck::bytes_of(&env.pressure));
     hasher.update(bytemuck::bytes_of(&env.microbiome));
+    hasher.update(bytemuck::bytes_of(&env.logic));
 
     // Hash Memetics (8192 bytes)
     for word in &env.memetics {
@@ -296,6 +297,7 @@ fn main() {
             thermodynamics_system,
             microbiome_system,
             pressure_system,
+            computation_system,
             wind_system,
             vortex_system,
             volcanic_eruption_system,

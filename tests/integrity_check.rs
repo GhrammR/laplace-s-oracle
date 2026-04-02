@@ -130,7 +130,7 @@ fn test_determinism_after_leap() {
 
 #[test]
 fn telemetry_frame_size_seal() {
-    assert_eq!(std::mem::size_of::<TelemetryFrame>(), 9280);
+    assert_eq!(std::mem::size_of::<TelemetryFrame>(), 9408);
     println!("[PASS] TelemetryFrame size is exactly 9248 bytes");
 }
 

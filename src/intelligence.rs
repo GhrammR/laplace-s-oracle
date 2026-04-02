@@ -221,6 +221,7 @@ pub enum Action {
 
 pub const FEAR_MASK: u64 = 0x8000_0000_0000_0000;
 pub const WARFARE_COGNITIVE_MASK: u64 = 0xF0F0_F0F0_0F0F_0F0F;
+pub const SEMICONDUCTOR_BIT: usize = 128;
 
 pub trait DecisionEngine {
     fn decide(brain: &SimHashBrain, stimulus: &Stimulus, research_threshold: u32) -> Action;
@@ -329,6 +330,16 @@ pub fn think_system(
                     env_stack.memetics[meme_idx] = new_meme;
                 }
             }
+
+            if tech.is_bit_set(SEMICONDUCTOR_BIT)
+                && matches!(*action, Action::Research | Action::Build)
+            {
+                let logic_bit = 1u64 << x;
+                if (env_stack.biomass[y] & logic_bit) != 0 {
+                    env_stack.logic[y] ^= logic_bit;
+                    env_stack.biomass[y] &= !logic_bit;
+                }
+            }
         }
     }
 }
@@ -423,6 +434,37 @@ mod tests {
             linguistic_sequence_from_taxonomy(taxonomy),
             linguistic_sequence_from_taxonomy(taxonomy)
         );
+    }
+
+    #[test]
+    fn test_semiconductor_clock_pulse() {
+        let mut world = World::new();
+        world.insert_resource(EnvironmentData::default());
+        world.insert_resource(EnvironmentStack::default());
+        world.insert_resource(WorldHash([7u8; 32]));
+
+        {
+            let mut env = world.resource_mut::<EnvironmentStack>();
+            env.biomass[4] |= 1 << 3;
+        }
+
+        let mut mask = TechnologyMask::default();
+        mask.set_bit(SEMICONDUCTOR_BIT);
+
+        world.spawn((
+            SimHashBrain(0),
+            Action::Build,
+            mask,
+            Position { x: 3, y: 4 },
+        ));
+
+        let mut schedule = Schedule::default();
+        schedule.add_systems(think_system);
+        schedule.run(&mut world);
+
+        let env = world.resource::<EnvironmentStack>();
+        assert_eq!((env.logic[4] >> 3) & 1, 1);
+        assert_eq!((env.biomass[4] >> 3) & 1, 0);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! Verifiable Telemetry Pipeline for the Laplace Oracle.
 //!
-//! BINARY PROTOCOL SPECIFICATION (9280 bytes total):
+//! BINARY PROTOCOL SPECIFICATION (9408 bytes total):
 //! 00-03: [u8; 4] (Sync: 0xAA, 0xBB, 0xCC, 0xDD)
 //! 04-11: u64 (Tick)
 //! 12-19: u64 (LastTick)
@@ -9,8 +9,8 @@
 //! 56-87: [u64; 4] (TechnologyMask)
 //! 88-95: u64 (Apex Species Brain Mask)
 //! 96-127: [u64; 4] (Apex Linguistic Sequence)
-//! 128-9215: EnvironmentStack payload
-//! 9216-9279: [u8; 64] (Ed25519 Signature)
+//! 128-9343: EnvironmentStack payload
+//! 9344-9407: [u8; 64] (Ed25519 Signature)
 
 #![allow(unknown_lints)]
 #![deny(clippy::all)]
@@ -39,8 +39,8 @@ pub struct TelemetryFrame {
 }
 
 pub const SYNC_HEADER: [u8; 4] = [0xAA, 0xBB, 0xCC, 0xDD];
-pub const PAYLOAD_SIZE: usize = 9212;
-pub const FRAME_SIZE: usize = 9280;
+pub const PAYLOAD_SIZE: usize = 9340;
+pub const FRAME_SIZE: usize = 9408;
 
 impl TelemetryFrame {
     pub fn as_bytes(&self) -> [u8; FRAME_SIZE] {
@@ -76,14 +76,16 @@ impl TelemetryFrame {
                 .copy_from_slice(&self.stack.pressure[i].to_le_bytes());
             buf[896 + i * 8..896 + (i + 1) * 8]
                 .copy_from_slice(&self.stack.microbiome[i].to_le_bytes());
+            buf[1024 + i * 8..1024 + (i + 1) * 8]
+                .copy_from_slice(&self.stack.logic[i].to_le_bytes());
         }
 
         for i in 0..1024 {
-            let start = 1024 + i * 8;
+            let start = 1152 + i * 8;
             buf[start..start + 8].copy_from_slice(&self.stack.memetics[i].to_le_bytes());
         }
 
-        buf[9216..9280].copy_from_slice(&self.signature);
+        buf[9344..9408].copy_from_slice(&self.signature);
         buf
     }
 }
@@ -161,7 +163,7 @@ pub fn observation_system(
     };
 
     let buffer_tmp = frame.as_bytes();
-    let data_to_sign = &buffer_tmp[4..9216];
+    let data_to_sign = &buffer_tmp[4..9344];
     frame.signature = signing_key.0.sign(data_to_sign).to_bytes();
 
     let final_buffer = frame.as_bytes();
