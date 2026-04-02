@@ -49,6 +49,13 @@ The resulting celestial frame drives:
 - **Wormholes**: signed Unix datagram migration between Oracle instances
 - **Codex CI Commands**: `/audit`, `/sanity-check`, `/release`, and `/sync-docs`
 
+## Scenario Engine
+
+The Oracle now supports a headless scientific run mode:
+- `--scenario <OUTPUT_FILE.json>` switches the Oracle into fast in-memory execution with no binary telemetry on `stdout`
+- `--duration <TICKS>` defines how long the run should execute
+- the final report is pretty-printed JSON containing `final_tick`, `world_hash`, `apex_species`, `global_biomass`, `global_temperature`, and `technology_bits`
+
 ## Getting Started
 
-For launch, control, and operator-command details, use [OPERATIONS.md](OPERATIONS.md).
+For launch, control, scenario export, and operator-command details, use [OPERATIONS.md](OPERATIONS.md).

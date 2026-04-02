@@ -2,10 +2,11 @@ use base64::Engine;
 use bevy_ecs::prelude::*;
 use ed25519_dalek::SigningKey;
 use laplace_oracle::{
-    biology::Taxonomy, intelligence::*, ipc::*, physics::*, telemetry::*, temporal::*, wormhole::*,
-    StateVector,
+    biology::Taxonomy, intelligence::*, ipc::*, physics::*, taxonomy_decoder::decode_taxonomy,
+    telemetry::*, temporal::*, wormhole::*, StateVector,
 };
 use memmap2::MmapMut;
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::fs::OpenOptions;
 use std::os::unix::net::UnixDatagram;
@@ -56,6 +57,68 @@ pub fn init_miracles() -> MmapMut {
     unsafe { MmapMut::map_mut(&file).expect("mmap miracles.db") }
 }
 
+fn init_ephemeral_mmap(size: usize) -> MmapMut {
+    MmapMut::map_anon(size).expect("allocate anonymous mmap")
+}
+
+fn persist_tick(mmap: &mut MmapMut, tick: u64) {
+    mmap[0..8].copy_from_slice(&tick.to_le_bytes());
+}
+
+fn scenario_summary(world: &mut World) -> serde_json::Value {
+    let final_tick = world.resource::<Tick>().0;
+    let world_hash = hex::encode(world.resource::<WorldHash>().0);
+
+    let (global_biomass, global_temperature) = {
+        let env = world.resource::<EnvironmentStack>();
+        let biomass = env
+            .biomass
+            .iter()
+            .map(|row| row.count_ones() as u64)
+            .sum::<u64>();
+        let temperature = env
+            .temperature
+            .iter()
+            .map(|row| row.count_ones() as u64)
+            .sum::<u64>();
+        (biomass, temperature)
+    };
+
+    let mut apex_taxonomy = Taxonomy(0);
+    let mut apex_technology_bits = 0u32;
+    let mut apex_population = 0u32;
+
+    let mut apex_query =
+        world.query_filtered::<(&Population, &Taxonomy, &TechnologyMask), Without<WorldTag>>();
+    for (population, taxonomy, technology) in apex_query.iter(world) {
+        if population.0 > apex_population {
+            apex_population = population.0;
+            apex_taxonomy = *taxonomy;
+            apex_technology_bits = technology.bit_count();
+        }
+    }
+
+    if apex_population == 0 {
+        let mut fallback_query = world.query::<(&Population, &Taxonomy, &TechnologyMask)>();
+        for (population, taxonomy, technology) in fallback_query.iter(world) {
+            if population.0 > apex_population {
+                apex_population = population.0;
+                apex_taxonomy = *taxonomy;
+                apex_technology_bits = technology.bit_count();
+            }
+        }
+    }
+
+    json!({
+        "final_tick": final_tick,
+        "world_hash": world_hash,
+        "apex_species": decode_taxonomy(apex_taxonomy.0),
+        "global_biomass": global_biomass,
+        "global_temperature": global_temperature,
+        "technology_bits": apex_technology_bits,
+    })
+}
+
 // ── Systems ──────────────────────────────────────────────────────────────────
 
 fn hash_update_system(
@@ -85,6 +148,7 @@ fn hash_update_system(
     hasher.update(bytemuck::bytes_of(&env.logic));
     hasher.update(bytemuck::bytes_of(&env.light));
     hasher.update(bytemuck::bytes_of(&env.elevation));
+    hasher.update(bytemuck::bytes_of(&env.geology));
 
     // Hash Memetics (8192 bytes)
     for word in &env.memetics {
@@ -126,6 +190,8 @@ fn main() {
     let mut y = 0u8;
     let mut wormhole_rx: Option<PathBuf> = None;
     let mut wormhole_tx: Option<PathBuf> = None;
+    let mut scenario_output: Option<PathBuf> = None;
+    let mut scenario_duration: Option<u64> = None;
     let api_socket_path = PathBuf::from("/tmp/oracle_api.sock");
 
     for i in 1..args.len() {
@@ -144,6 +210,8 @@ fn main() {
             println!("  --y <Y>            Y-coordinate for Genesis");
             println!("  --wormhole-rx <SOCKET_PATH>  Bind a non-blocking incoming wormhole socket");
             println!("  --wormhole-tx <SOCKET_PATH>  Send outgoing ascension payloads to a wormhole socket");
+            println!("  --scenario <OUTPUT_FILE.json>  Run headless and export a JSON summary");
+            println!("  --duration <TICKS>  Required with --scenario; number of ticks to execute");
             println!("  --help, -h         Print this help message");
             std::process::exit(0);
         }
@@ -181,6 +249,18 @@ fn main() {
         if args[i] == "--wormhole-tx" && i + 1 < args.len() {
             wormhole_tx = Some(PathBuf::from(&args[i + 1]));
         }
+        if args[i] == "--scenario" && i + 1 < args.len() {
+            scenario_output = Some(PathBuf::from(&args[i + 1]));
+        }
+        if args[i] == "--duration" && i + 1 < args.len() {
+            scenario_duration = args[i + 1].parse().ok();
+        }
+    }
+
+    let scenario_mode = scenario_output.is_some();
+    if scenario_mode && scenario_duration.is_none() {
+        eprintln!("ERROR: --scenario requires --duration <TICKS>");
+        std::process::exit(1);
     }
 
     if is_archive {
@@ -203,18 +283,20 @@ fn main() {
     let public_key = signing_key.verifying_key();
     let pk_b64 = base64::engine::general_purpose::STANDARD.encode(public_key.as_bytes());
 
-    // 2. Persist Key for TUI Discovery
-    std::fs::write("/tmp/oracle.pub", pk_b64.as_bytes()).expect("write /tmp/oracle.pub");
+    if !scenario_mode {
+        // 2. Persist Key for TUI Discovery
+        std::fs::write("/tmp/oracle.pub", pk_b64.as_bytes()).expect("write /tmp/oracle.pub");
 
-    // 3. Print Key to Stderr
-    eprintln!("PUBLIC_KEY_B64: {}", pk_b64);
+        // 3. Print Key to Stderr
+        eprintln!("PUBLIC_KEY_B64: {}", pk_b64);
 
-    // 4. Flush Stderr
-    use std::io::Write;
-    std::io::stderr().flush().unwrap();
+        // 4. Flush Stderr
+        use std::io::Write;
+        std::io::stderr().flush().unwrap();
 
-    // 4. Pre-flight Sleep
-    std::thread::sleep(std::time::Duration::from_millis(500));
+        // 5. Pre-flight Sleep
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
 
     if is_genesis {
         let mut miracle_mmap = init_miracles();
@@ -237,28 +319,52 @@ fn main() {
         std::process::exit(0);
     }
 
-    let stdout = std::io::stdout();
+    let stdout = if scenario_mode {
+        None
+    } else {
+        Some(std::io::stdout())
+    };
 
-    let api_listener = bind_api_listener(&api_socket_path).expect("bind oracle api listener");
+    let api_listener = if scenario_mode {
+        None
+    } else {
+        Some(bind_api_listener(&api_socket_path).expect("bind oracle api listener"))
+    };
 
-    let rx_socket = wormhole_rx.as_ref().map(|path| {
-        let _ = std::fs::remove_file(path);
-        let socket = UnixDatagram::bind(path).expect("bind wormhole-rx");
-        socket
-            .set_nonblocking(true)
-            .expect("set_nonblocking wormhole-rx");
-        socket
-    });
-    let tx_socket = wormhole_tx.as_ref().map(|_| {
-        let socket = UnixDatagram::unbound().expect("bind wormhole-tx");
-        socket
-            .set_nonblocking(true)
-            .expect("set_nonblocking wormhole-tx");
-        socket
-    });
+    let rx_socket = if scenario_mode {
+        None
+    } else {
+        wormhole_rx.as_ref().map(|path| {
+            let _ = std::fs::remove_file(path);
+            let socket = UnixDatagram::bind(path).expect("bind wormhole-rx");
+            socket
+                .set_nonblocking(true)
+                .expect("set_nonblocking wormhole-rx");
+            socket
+        })
+    };
+    let tx_socket = if scenario_mode {
+        None
+    } else {
+        wormhole_tx.as_ref().map(|_| {
+            let socket = UnixDatagram::unbound().expect("bind wormhole-tx");
+            socket
+                .set_nonblocking(true)
+                .expect("set_nonblocking wormhole-tx");
+            socket
+        })
+    };
 
-    let mut db = open_universe_db(is_genesis);
-    let miracle_db = init_miracles();
+    let mut db = if scenario_mode {
+        init_ephemeral_mmap(4096)
+    } else {
+        open_universe_db(is_genesis)
+    };
+    let miracle_db = if scenario_mode {
+        init_ephemeral_mmap(4096)
+    } else {
+        init_miracles()
+    };
 
     // 1. Initial State (Persistence: Tick at offset 0, StateVector at offset 8)
     {
@@ -283,17 +389,21 @@ fn main() {
     world.insert_resource(WorldHash::default());
     world.insert_resource(MmapResource(db));
     world.insert_resource(MiracleMmap(miracle_db));
-    world.insert_resource(ApiListenerRuntime {
-        listener: api_listener,
-        path: api_socket_path.clone(),
-    });
+    if let Some(api_listener) = api_listener {
+        world.insert_resource(ApiListenerRuntime {
+            listener: api_listener,
+            path: api_socket_path.clone(),
+        });
+    }
     world.insert_resource(LastMiracleNonce::default());
     world.insert_resource(LastTick::default());
     world.insert_resource(RngResource::from_seed(initial_hash));
     world.insert_resource(EnvironmentData::default());
     world.insert_resource(EnvironmentStack::default());
     world.insert_resource(CelestialSeed::default());
-    world.insert_resource(StdoutResource(stdout));
+    if let Some(stdout) = stdout {
+        world.insert_resource(StdoutResource(stdout));
+    }
     world.insert_resource(TemporalState::default());
     world.insert_resource(WormholeActivity::default());
     world.insert_resource(WormholeRuntime {
@@ -379,8 +489,27 @@ fn main() {
         )
             .chain()
             .in_set(SimulationPhase::Leap),
-        observation_system.in_set(SimulationPhase::Observation),
     ));
+
+    if !scenario_mode {
+        schedule.add_systems(observation_system.in_set(SimulationPhase::Observation));
+    }
+
+    if scenario_mode {
+        let duration = scenario_duration.expect("scenario duration");
+        for _ in 0..duration {
+            schedule.run(&mut world);
+            let current_tick = world.resource::<Tick>().0;
+            let mut db_res = world.resource_mut::<MmapResource>();
+            persist_tick(&mut db_res.0, current_tick);
+        }
+
+        let report = scenario_summary(&mut world);
+        let output_path = scenario_output.expect("scenario output path");
+        let json_output = serde_json::to_string_pretty(&report).expect("serialize scenario report");
+        std::fs::write(&output_path, json_output).expect("write scenario report");
+        return;
+    }
 
     // 4. Infinite Simulation Loop
     let wormhole_rx_shutdown = wormhole_rx.clone();
@@ -408,7 +537,7 @@ fn main() {
             // Persist current tick to disk
             let current_tick = world.resource::<Tick>().0;
             let mut db_res = world.resource_mut::<MmapResource>();
-            db_res.0[0..8].copy_from_slice(&current_tick.to_le_bytes());
+            persist_tick(&mut db_res.0, current_tick);
         } else {
             let mut sub_schedule = Schedule::default();
             sub_schedule.add_systems(genesis_listener_system);

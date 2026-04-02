@@ -19,3 +19,9 @@
 - Hypothesis: repeated tectonic uplift beneath pressure-rich orbital tide bands will create deterministic volcanic coastlines where `geology` vents and elevated basins lock into long-lived habitable crescents.
 - Hypothesis: coupling erosion to lateral water flow and epoch-scaled uplift will produce naturally migrating river canyons even without a full voxel depth stack, letting `geology` act as a compressed proxy for underground instability.
 - Meta-Improvement: add a Codex skill `deep-time-audit` that samples terrain snapshots every 100 ticks, compares `elevation` and `geology` diffs, and flags whether tectonic epochs are materially changing the world or wasting simulation budget.
+
+## v0.14.0 - 2026-04-02
+- Aha!: the cleanest scenario engine did not require a parallel simulation stack. Reusing the exact live Bevy schedule with an anonymous mmap and no Observation systems preserved determinism while eliminating stdout telemetry, which means research-mode and runtime-mode now share one physics path instead of drifting into separate engines.
+- Hypothesis: batching many `--scenario --duration N` runs against fixed seeds and comparing only the final `world_hash`, biomass, and technology-bit outputs will expose hidden bifurcation thresholds in orbital, geological, and memetic coupling long before a full Python SDK exists.
+- Hypothesis: because the scenario report decodes the apex taxonomy at the end of a headless run, we can detect lineage lock-in across seeds cheaply and use that as a selection signal for future Monte Carlo survival tournaments.
+- Meta-Improvement: add a Codex skill `scenario-sweep` that runs multiple seeded `--scenario` experiments, stores the pretty JSON reports under `.artifacts/scenarios/`, and emits a compact comparative table before release candidates are approved.

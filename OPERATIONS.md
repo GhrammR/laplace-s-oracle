@@ -37,8 +37,19 @@ mkfifo /tmp/oracle_pipe
 | `--seed-hash` | `<hex>` | Seeds the PRNG and signing key deterministically. |
 | `--wormhole-rx` | `<socket-path>` | Binds a non-blocking Unix datagram socket for incoming migrations. |
 | `--wormhole-tx` | `<socket-path>` | Stores the outbound Unix datagram target for ascension traffic. |
+| `--scenario` | `<output.json>` | Runs the Oracle headlessly and writes a pretty-printed scientific summary JSON instead of emitting binary telemetry. |
+| `--duration` | `<ticks>` | Required with `--scenario`; defines how many ticks the headless run should execute. |
 
 The Oracle also binds the God-Mode API socket at `/tmp/oracle_api.sock` on startup and cleans it up on shutdown.
+
+## Section 2A: Scenario Engine
+
+For scientific extraction runs, execute the Oracle headlessly:
+```bash
+./target/release/laplace-oracle --scenario test_output.json --duration 100
+```
+
+Scenario mode runs fully in memory, suppresses binary telemetry on `stdout`, skips the live Panopticon path, and writes a pretty-printed JSON summary at the requested output path.
 
 ## Section 3: Telemetry and Visualization
 

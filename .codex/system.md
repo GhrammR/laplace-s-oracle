@@ -40,7 +40,10 @@ Avoid replacing short, common symbols (like `?`, `-`, `;`) globally. Use unique 
 Upon completing any architectural phase or release, you MUST output a detailed Markdown summary. This summary must include: Files Modified, Exact Byte-Size changes to TelemetryFrame, a brief explanation of the Bitwise/Mathematical logic implemented, and the GitHub Release URL.
 
 8. The Innovation Log
-You MUST maintain 'INNOVATION_LOG.md' as a persistent ledger. Read it before modifying it. Do NOT remove an idea unless it is fully implemented, mathematically impossible under the 8GB Law, or explicitly rejected. Append 1-3 new hypotheses after every release. You MUST also include at least one 'Meta-Improvement' (a suggestion for a new or improvement to a Codex skill, automation, or CI/CD workflow to improve your own operational efficiency). Link to this log in your AAR.
+You MUST maintain 'INNOVATION_LOG.md' as a persistent ledger. Read it before modifying it. Do NOT remove an idea unless it is fully implemented, mathematically impossible under the 8GB Law, or explicitly rejected. Append as many hypotheses, feature improvements, Aha! moments, and architectural realizations as you discover after every release. You MUST also include at least one 'Meta-Improvement' (a suggestion for a new or improvement to a Codex skill, automation, or CI/CD workflow to improve your own operational efficiency). Link to this log in your AAR.
 
 9. Documentation Sync
 Before executing /release, you MUST autonomously execute the /sync-docs skill and commit the resulting changes.
+
+10. The Backlog Prune
+After completing a phase defined in `BACKLOG.md`, you MUST delete that phase from the file. If `BACKLOG.md` becomes empty, delete the file entirely and remove this axiom.

@@ -11,18 +11,6 @@ All new systems must obey these implementation constraints:
 
 ## Tier 1: Planetary Physics
 
-### 1. Orbital Mechanics & Astrological Influence
-Implement a deterministic orbital model that derives star class, moon count, tidal amplitude, radiation regime, eclipse cadence, and black-hole shear from a compact celestial seed instead of storing a full astrophysics scene graph.
-- 8GB-compliant mechanism: Encode stellar system parameters as a small orbital seed resource. Derive light curves, tide masks, magnetic storm risk, radiation pulses, and astrological event windows procedurally each tick from Kepler-style phase equations and hash-expanded constants.
-- Scientific Value: Researchers can test how day length, tidal locking, radiation variance, stellar instability, and orbital eccentricity change climate stability, extinction pressure, and civilization survivability.
-- Gameplay Value: Players get dramatic world types such as red-dwarf flare worlds, moon-tide catastrophe worlds, eclipse cult worlds, and black-hole frontier scenarios with meaningful strategic consequences.
-
-### 2. Tectonic Drift & Voxel Depth
-Expand the current 2D surface board into a compressed 3D voxel bit-stack with crust, mantle, cave, aquifer, and magma layers, plus extremely slow tectonic cellular automata that move stress and uplift across epochs.
-- 8GB-compliant mechanism: Represent depth as a bounded stack of sparse bit-layers rather than storing freeform voxel objects. Derive underground biome traits procedurally from depth index, heat, pressure, and local geological hash instead of persisting per-cell cave metadata.
-- Scientific Value: Enables experiments on crust recycling, volcanism, cave ecology, mineral exposure, groundwater access, and deep biosphere persistence.
-- Gameplay Value: Adds caves, mines, bunkers, magma vents, sinkholes, and subterranean warfare without requiring a separate map engine.
-
 ### 3. The Periodic Table & Atmospheric Matrices
 Introduce compressed chemistry layers for major atmospheric and geochemical categories such as Oxygen, CO2, Methane, Sulfur compounds, inert gases, metals, organics, and reactive radicals.
 - 8GB-compliant mechanism: Do not track 118 elements per cell. Group elements by reactive flag families and store only a small set of bit-layers and low-bit-density concentration masks. Decode specific local chemistry procedurally from the family bits plus heat, pressure, water, and substrate exposure.
@@ -81,13 +69,13 @@ Allow `Memetics` to polarize into incompatible belief clusters that fracture a c
 - Scientific Value: Enables study of polarization, legitimacy decay, insurgency formation, regime fragmentation, and memetic instability in complex societies.
 - Gameplay Value: Internal collapse becomes as dangerous as external invasion. Empires can die from doctrinal incompatibility instead of only military defeat.
 
-## Tier 4: The Operator API
+## Tier 5: The WebGL Panopticon
 
-### 12. Python SDK & Scenario Engine
-Release a `laplace-api` Python package for `/tmp/oracle_api.sock`, plus a scenario runner for overnight Monte Carlo experiments and scripted setups such as "The Martian Setup."
-- 8GB-compliant mechanism: Keep the runtime lean by pushing orchestration outside the core sim. The SDK should stream compact commands, snapshots, and telemetry references rather than duplicating world state in memory.
-- Scientific Value: Researchers can batch-run reproducible experiments, sweep parameter spaces, archive outcomes, and automate intervention studies.
-- Gameplay Value: Enables campaign scripting, tournament scenarios, generated disasters, and user-authored challenge packs without bloating the TUI.
+### 13. WebGL Panopticon
+Build a lightweight local webserver that serves a Canvas/WebGL front-end, consumes the binary telemetry stream through WebSockets, and renders colorized high-framerate bitboards without modifying the headless Rust simulation core.
+- 8GB-compliant mechanism: Keep the Rust core authoritative and headless. Stream the existing signed telemetry frames outward, decode them once in the browser, and let the GPU handle color, compositing, and animation rather than duplicating world state in the Oracle.
+- Scientific Value: Researchers gain a richer inspection surface for long runs, comparative overlays, and visual anomaly detection without distorting the deterministic simulation substrate.
+- Gameplay Value: Players get smooth, colorized, high-framerate observability that makes climate, culture, computation, and future chemistry layers legible in real time.
 
 ## Immediate Design Principle for All Tiers
 Every new system must answer this question before implementation:

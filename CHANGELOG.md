@@ -3,6 +3,11 @@
 ## Unreleased
 - Pending changes.
 
+## v0.14.0 - 2026-04-02
+- Added headless scenario execution with `--scenario <output.json>` and `--duration <ticks>`, producing pretty-printed scientific JSON summaries instead of binary telemetry.
+- Pruned completed roadmap phases from `BACKLOG.md`, added the Backlog Prune axiom, and expanded `/sync-docs` to verify backlog cleanup.
+- Added the future `Tier 5: The WebGL Panopticon` roadmap entry while keeping the Rust core headless and telemetry-driven.
+
 ## v0.13.0 - 2026-04-02
 - Added deep-time tectonic uplift and erosion, making `elevation` a dynamic substrate rather than a static terrain map.
 - Added the compressed `geology` layer, telemetry packing updates, and a Panopticon geology visualization for magma vents versus crust.
