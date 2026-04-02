@@ -335,6 +335,7 @@ fn main() {
             (
                 hazard_system,
                 thermodynamics_system,
+                homeostasis_system,
                 microbiome_system,
                 pressure_system,
                 computation_system,
@@ -351,6 +352,7 @@ fn main() {
                 laplace_oracle::biology::life_system,
                 leap_system,
                 natural_spawning_system,
+                consolidation_system,
                 ascension_system,
                 miracle_grace_system,
                 miracle_grace_cleanup_system,

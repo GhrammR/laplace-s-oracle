@@ -131,8 +131,8 @@ fn test_determinism_after_leap() {
 
 #[test]
 fn telemetry_frame_size_seal() {
-    assert_eq!(std::mem::size_of::<TelemetryFrame>(), 10561);
-    println!("[PASS] TelemetryFrame size is exactly 10561 bytes");
+    assert_eq!(std::mem::size_of::<TelemetryFrame>(), 10563);
+    println!("[PASS] TelemetryFrame size is exactly 10563 bytes");
 }
 
 #[test]
@@ -509,16 +509,22 @@ fn test_telemetry_elevation_offsets() {
         apex_linguistic_sequence: [0u64; 4],
         stack: EnvironmentStack::default(),
         wormhole_activity: 0,
+        singularity_index: 0,
         signature: [0u8; 64],
     };
     frame.stack.light[2] = 1u64 << 9;
     frame.stack.elevation[17] = 9;
     frame.wormhole_activity = 3;
+    frame.singularity_index = 4_321;
     let bytes = frame.as_bytes();
     let light_word = u64::from_le_bytes(bytes[1152 + 16..1152 + 24].try_into().unwrap());
     assert_eq!(light_word, 1u64 << 9);
     assert_eq!(bytes[1280 + 17], 9);
     assert_eq!(bytes[10496], 3);
+    assert_eq!(
+        u16::from_le_bytes(bytes[10497..10499].try_into().unwrap()),
+        4_321
+    );
 }
 
 #[test]
@@ -605,6 +611,40 @@ fn test_linguistic_trade() {
         total_diff <= 1,
         "trade should interleave masks with at most one innovation bit"
     );
+}
+
+#[test]
+fn test_entity_consolidation() {
+    let mut world = World::new();
+
+    let mut weaker = TechnologyMask::default();
+    weaker.set_bit(3);
+    let mut stronger = TechnologyMask::default();
+    stronger.set_bit(3);
+    stronger.set_bit(8);
+
+    let weak_entity = world
+        .spawn((
+            Position { x: 12, y: 4 },
+            Taxonomy(0xBEEF),
+            Population(40),
+            weaker,
+        ))
+        .id();
+    let strong_entity = world
+        .spawn((
+            Position { x: 12, y: 4 },
+            Taxonomy(0xBEEF),
+            Population(60),
+            stronger,
+        ))
+        .id();
+
+    world.run_system_once(consolidation_system).unwrap();
+
+    assert!(world.get_entity(weak_entity).is_err());
+    assert_eq!(world.get::<Population>(strong_entity).unwrap().0, 100);
+    assert_eq!(world.query::<&Population>().iter(&world).count(), 1);
 }
 
 #[test]

@@ -165,6 +165,62 @@ pub fn spatial_conflict_system(
     }
 }
 
+pub fn consolidation_system(
+    mut commands: Commands,
+    mut scratch: Local<Vec<ConsolidationEntry>>,
+    query: Query<(Entity, &Position, &Taxonomy, &Population, &TechnologyMask)>,
+) {
+    scratch.clear();
+    scratch.extend(
+        query.iter().map(
+            |(entity, pos, taxonomy, population, tech)| ConsolidationEntry {
+                entity,
+                x: pos.x,
+                y: pos.y,
+                taxonomy: taxonomy.0,
+                population: population.0,
+                tech_bits: tech.bit_count(),
+            },
+        ),
+    );
+    scratch.sort_unstable_by_key(|entry| (entry.x, entry.y, entry.taxonomy));
+
+    let mut i = 0;
+    while i < scratch.len() {
+        let mut j = i + 1;
+        while j < scratch.len()
+            && scratch[j].x == scratch[i].x
+            && scratch[j].y == scratch[i].y
+            && scratch[j].taxonomy == scratch[i].taxonomy
+        {
+            j += 1;
+        }
+
+        if j - i > 1 {
+            let mut survivor = scratch[i];
+            let mut total_population = 0u32;
+            for entry in &scratch[i..j] {
+                total_population = total_population.saturating_add(entry.population);
+                if entry.tech_bits > survivor.tech_bits {
+                    survivor = *entry;
+                }
+            }
+
+            commands
+                .entity(survivor.entity)
+                .insert(Population(total_population));
+
+            for entry in &scratch[i..j] {
+                if entry.entity != survivor.entity {
+                    commands.entity(entry.entity).despawn();
+                }
+            }
+        }
+
+        i = j;
+    }
+}
+
 pub fn discover_tech(mask: &mut TechnologyMask, world_hash: &[u8; 32]) -> Option<u64> {
     let mut candidates = Vec::with_capacity(256);
 
@@ -252,6 +308,16 @@ pub struct EnvironmentData(pub u64);
 
 #[derive(Component)]
 pub struct NewlySpawned;
+
+#[derive(Clone, Copy)]
+pub struct ConsolidationEntry {
+    entity: Entity,
+    x: u8,
+    y: u8,
+    taxonomy: u64,
+    population: u32,
+    tech_bits: u32,
+}
 
 pub fn mutation_system(
     mut commands: Commands,

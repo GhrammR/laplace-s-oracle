@@ -67,10 +67,11 @@ pub struct TelemetryFrame {
     pub elevation: [u8; 1024],
     pub memetics: [u64; 1024],
     pub wormhole_activity: u8,
+    pub singularity_index: u16,
     pub signature: [u8; 64],
 }
 
-const FRAME_SIZE: usize = 10561;
+const FRAME_SIZE: usize = 10563;
 
 pub struct History {
     pub data: [u64; 256],
@@ -455,10 +456,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                     elevation,
                     memetics,
                     wormhole_activity: buf[10496],
-                    signature: buf[10497..10561].try_into().unwrap(),
+                    singularity_index: u16::from_le_bytes(buf[10497..10499].try_into().unwrap()),
+                    signature: buf[10499..10563].try_into().unwrap(),
                 };
                 let valid = vk
-                    .verify(&buf[4..10497], &Signature::from_bytes(&frame.signature))
+                    .verify(&buf[4..10499], &Signature::from_bytes(&frame.signature))
                     .is_ok();
                 if valid {
                     let _ = tx.send(RenderEvent::Telemetry(Box::new(frame), valid));
@@ -716,6 +718,18 @@ fn wormhole_radar_color(frame: &TelemetryFrame) -> Color {
     }
 }
 
+fn omega_sync_label(index: u16) -> String {
+    format!("[ OMEGA SYNC: {:.2}% ]", f32::from(index) / 100.0)
+}
+
+fn omega_sync_color(index: u16) -> Color {
+    if index >= 5_000 {
+        Color::LightCyan
+    } else {
+        Color::LightMagenta
+    }
+}
+
 fn render_bitboard(frame: &TelemetryFrame, state: &TuiState) -> String {
     let mut output = String::with_capacity(1024 + 16);
     for y in 0..16 {
@@ -751,14 +765,15 @@ fn ui(f: &mut Frame, last: &Option<(TelemetryFrame, bool)>, history: &History, s
             Constraint::Length(1),
         ])
         .split(f.area());
-    let (t, h, s, st) = match last {
+    let (t, h, s, st, omega) = match last {
         Some((fr, v)) => (
             fr.tick,
             fr.world_hash,
             if *v { "VERIFIED" } else { "INVALID" },
             if *v { Color::Green } else { Color::Red },
+            fr.singularity_index,
         ),
-        None => (0, [0u8; 32], "WAITING", Color::Yellow),
+        None => (0, [0u8; 32], "WAITING", Color::Yellow, 0),
     };
     let header = Line::from(vec![
         Span::styled("Tick: ", Style::default().fg(Color::Gray)),
@@ -778,6 +793,11 @@ fn ui(f: &mut Frame, last: &Option<(TelemetryFrame, bool)>, history: &History, s
         Span::styled(
             state.dropped_frames.to_string(),
             Style::default().fg(Color::Red),
+        ),
+        Span::raw(" | "),
+        Span::styled(
+            omega_sync_label(omega),
+            Style::default().fg(omega_sync_color(omega)).bold(),
         ),
     ]);
     f.render_widget(Paragraph::new(header).bg(Color::Black), chunks[0]);

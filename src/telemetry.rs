@@ -1,6 +1,6 @@
 //! Verifiable Telemetry Pipeline for the Laplace Oracle.
 //!
-//! BINARY PROTOCOL SPECIFICATION (10561 bytes total):
+//! BINARY PROTOCOL SPECIFICATION (10563 bytes total):
 //! 00-03: [u8; 4] (Sync: 0xAA, 0xBB, 0xCC, 0xDD)
 //! 04-11: u64 (Tick)
 //! 12-19: u64 (LastTick)
@@ -11,7 +11,8 @@
 //! 96-127: [u64; 4] (Apex Linguistic Sequence)
 //! 128-10495: EnvironmentStack payload
 //! 10496: u8 (Wormhole activity)
-//! 10497-10560: [u8; 64] (Ed25519 Signature)
+//! 10497-10498: u16 (Singularity Index, hundredths of a percent)
+//! 10499-10562: [u8; 64] (Ed25519 Signature)
 
 #![allow(unknown_lints)]
 #![deny(clippy::all)]
@@ -38,12 +39,19 @@ pub struct TelemetryFrame {
     pub apex_linguistic_sequence: [u64; 4],
     pub stack: EnvironmentStack,
     pub wormhole_activity: u8,
+    pub singularity_index: u16,
     pub signature: [u8; 64],
 }
 
 pub const SYNC_HEADER: [u8; 4] = [0xAA, 0xBB, 0xCC, 0xDD];
-pub const PAYLOAD_SIZE: usize = 10493;
-pub const FRAME_SIZE: usize = 10561;
+pub const PAYLOAD_SIZE: usize = 10495;
+pub const FRAME_SIZE: usize = 10563;
+
+fn singularity_index_value(tick: u64, apex_tech_bits: u32) -> u16 {
+    let tech_component = (apex_tech_bits as f32 / 256.0) * 50.0;
+    let survival_component = ((tick as f32 / 100_000.0).clamp(0.0, 1.0)) * 50.0;
+    ((tech_component + survival_component).clamp(0.0, 100.0) * 100.0).round() as u16
+}
 
 impl TelemetryFrame {
     pub fn as_bytes(&self) -> [u8; FRAME_SIZE] {
@@ -94,7 +102,8 @@ impl TelemetryFrame {
         }
 
         buf[10496] = self.wormhole_activity;
-        buf[10497..10561].copy_from_slice(&self.signature);
+        buf[10497..10499].copy_from_slice(&self.singularity_index.to_le_bytes());
+        buf[10499..10563].copy_from_slice(&self.signature);
         buf
     }
 }
@@ -145,6 +154,7 @@ pub fn observation_system(
     let mut apex_pop = 0;
     let mut apex_mask = 0;
     let mut apex_linguistic_sequence = [0u64; 4];
+    let mut apex_tech_bits = 0u32;
     let mut tech_mask_sum = [0u64; 4];
 
     for (p, brain, t, sequence) in q.iter() {
@@ -152,6 +162,7 @@ pub fn observation_system(
             apex_pop = p.0;
             apex_mask = brain.0;
             apex_linguistic_sequence = sequence.0;
+            apex_tech_bits = t.bit_count();
         }
         tech_mask_sum[0] |= t.0[0];
         tech_mask_sum[1] |= t.0[1];
@@ -170,11 +181,12 @@ pub fn observation_system(
         apex_linguistic_sequence,
         stack: *stack,
         wormhole_activity: wormhole_activity.0,
+        singularity_index: singularity_index_value(tick.0, apex_tech_bits),
         signature: [0u8; 64],
     };
 
     let buffer_tmp = frame.as_bytes();
-    let data_to_sign = &buffer_tmp[4..10497];
+    let data_to_sign = &buffer_tmp[4..10499];
     frame.signature = signing_key.0.sign(data_to_sign).to_bytes();
 
     let final_buffer = frame.as_bytes();

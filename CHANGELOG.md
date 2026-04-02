@@ -3,6 +3,11 @@
 ## Unreleased
 - Pending changes.
 
+## v0.8.0 - 2026-04-01
+- Added deterministic entity consolidation to merge duplicate civilizations by coordinate and taxonomy while preserving the most advanced survivor.
+- Introduced homeostatic negentropy to reseed biomass and water after total ecological collapse.
+- Expanded telemetry and the Panopticon with the Singularity Index and Omega Sync header metric.
+
 ## v0.7.0 - 2026-04-01
 - Added the wormhole transport substrate with signed Unix datagram payloads for outgoing ascension and incoming migration.
 - Introduced the Ascend action gate for technology-bit-255 civilizations under critical pressure.

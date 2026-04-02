@@ -15,7 +15,7 @@ use bevy_ecs::prelude::*;
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 
-use crate::telemetry::Tick;
+use crate::telemetry::{Tick, WorldHash};
 
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(C)]
@@ -115,6 +115,28 @@ fn lowland_bonus_mask(env: &EnvironmentStack, row: usize) -> u64 {
         }
     }
     mask
+}
+
+fn deterministic_reseed_coords(seed: [u8; 32], salt: usize) -> [usize; 4] {
+    let mut coords = [0usize; 4];
+    for lane in 0..4 {
+        let start = (salt + lane * 2) % 30;
+        let base = u16::from_le_bytes([seed[start], seed[start + 1]]) as usize;
+        let mut coord = (base + lane * 257 + salt * 131) % 1024;
+        while coords[..lane].contains(&coord) {
+            coord = (coord + 1) % 1024;
+        }
+        coords[lane] = coord;
+    }
+    coords
+}
+
+fn seed_layer_bits(layer: &mut [u64; WORLD_HEIGHT], coords: [usize; 4]) {
+    for coord in coords {
+        let row = coord / WORLD_WIDTH;
+        let x = coord % WORLD_WIDTH;
+        layer[row] |= bit_at(x);
+    }
 }
 
 fn seasonal_light_width(orbital_row: usize) -> usize {
@@ -248,6 +270,34 @@ pub fn thermodynamics_system(mut env: ResMut<EnvironmentStack>) {
 
     env.temperature = next_temp;
     env.biomass = next_biomass;
+}
+
+pub fn homeostasis_system(
+    hash: Res<WorldHash>,
+    tick: Res<Tick>,
+    mut env: ResMut<EnvironmentStack>,
+) {
+    homeostasis_step(&mut env, hash.0, tick.0);
+}
+
+pub fn homeostasis_step(env: &mut EnvironmentStack, world_hash: [u8; 32], tick: u64) {
+    let barren_biomass = env.biomass.iter().all(|&row| row == 0);
+    let barren_water = env.water.iter().all(|&row| row == 0);
+    if !(barren_biomass && barren_water) {
+        return;
+    }
+
+    let seed = if world_hash.iter().any(|&byte| byte != 0) {
+        world_hash
+    } else {
+        let digest = Sha256::digest(tick.to_le_bytes());
+        let mut derived = [0u8; 32];
+        derived.copy_from_slice(&digest);
+        derived
+    };
+
+    seed_layer_bits(&mut env.water, deterministic_reseed_coords(seed, 0));
+    seed_layer_bits(&mut env.biomass, deterministic_reseed_coords(seed, 11));
 }
 
 /// Gravity System: Newtonian advection for particles.
