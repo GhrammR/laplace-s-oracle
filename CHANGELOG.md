@@ -3,6 +3,11 @@
 ## Unreleased
 - Pending changes.
 
+## v0.13.0 - 2026-04-02
+- Added deep-time tectonic uplift and erosion, making `elevation` a dynamic substrate rather than a static terrain map.
+- Added the compressed `geology` layer, telemetry packing updates, and a Panopticon geology visualization for magma vents versus crust.
+- Refreshed the operator manuals so README and OPERATIONS describe the new geology layer and epoch-scaled tectonic rules.
+
 ## v0.12.0 - 2026-04-02
 - Added cloud verification through a GitHub Actions Rust workflow for fmt, clippy, and tests on pushes to `main`.
 - Added the Codex `/sync-docs` command definition and updated the Constitution to require documentation sync before releases.

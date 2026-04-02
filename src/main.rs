@@ -351,6 +351,8 @@ fn main() {
                 hazard_system,
                 thermodynamics_system,
                 homeostasis_system,
+                tectonic_system,
+                geology_system,
                 microbiome_system,
                 pressure_system,
                 computation_system,

@@ -30,6 +30,7 @@ pub struct EnvironmentStack {
     pub microbiome: [u64; 16],
     pub logic: [u64; 16],
     pub light: [u64; 16],
+    pub geology: [u64; 16],
     pub elevation: [u8; 1024],
     pub memetics: [u64; 1024],
 }
@@ -269,6 +270,7 @@ impl Default for EnvironmentStack {
             microbiome,
             logic: [0u64; 16],
             light: [0u64; 16],
+            geology: [0u64; 16],
             elevation: [0u8; 1024],
             memetics: [0u64; 1024],
         }
@@ -394,6 +396,71 @@ pub fn gravity_system(mut env: ResMut<EnvironmentStack>) {
 /// Water Flow System: Bitwise fluid dynamics (Gravity + Lateral).
 pub fn water_flow_system(mut env: ResMut<EnvironmentStack>) {
     water_flow_step(&mut env);
+}
+
+fn has_lower_adjacent_elevation(env: &EnvironmentStack, x: usize, y: usize) -> bool {
+    let center = elevation_at(env, x, y);
+    let left = (x + WORLD_WIDTH - 1) % WORLD_WIDTH;
+    let right = (x + 1) % WORLD_WIDTH;
+    let up = row_above(y);
+    let down = row_below(y);
+    [
+        elevation_at(env, left, y),
+        elevation_at(env, right, y),
+        elevation_at(env, x, up),
+        elevation_at(env, x, down),
+    ]
+    .into_iter()
+    .any(|neighbor| neighbor < center)
+}
+
+pub fn tectonic_system(tick: Res<Tick>, mut env: ResMut<EnvironmentStack>) {
+    if !tick.0.is_multiple_of(100) {
+        return;
+    }
+    tectonic_step(&mut env);
+}
+
+pub fn tectonic_step(env: &mut EnvironmentStack) {
+    let current = *env;
+    let mut next_elevation = current.elevation;
+
+    for y in 0..WORLD_HEIGHT {
+        for x in 0..WORLD_WIDTH {
+            let idx = cell_index(x, y);
+            let bit = bit_at(x);
+
+            if current.temperature[y] & bit != 0 && current.pressure[y] & bit != 0 {
+                next_elevation[idx] = next_elevation[idx].saturating_add(1);
+            }
+
+            if current.water[y] & bit != 0 && has_lower_adjacent_elevation(&current, x, y) {
+                next_elevation[idx] = next_elevation[idx].saturating_sub(1);
+            }
+        }
+    }
+
+    env.elevation = next_elevation;
+}
+
+pub fn geology_system(mut env: ResMut<EnvironmentStack>) {
+    geology_step(&mut env);
+}
+
+pub fn geology_step(env: &mut EnvironmentStack) {
+    let current = *env;
+    let mut next_geology = [0u64; WORLD_HEIGHT];
+
+    for y in 0..WORLD_HEIGHT {
+        for x in 0..WORLD_WIDTH {
+            let bit = bit_at(x);
+            if current.temperature[y] & bit != 0 && elevation_at(&current, x, y) < 32 {
+                next_geology[y] |= bit;
+            }
+        }
+    }
+
+    env.geology = next_geology;
 }
 
 pub fn water_flow_step(env: &mut EnvironmentStack) {
@@ -774,6 +841,7 @@ pub fn local_memetics_signature(
 mod tests {
     use super::*;
     use crate::temporal::Position;
+    use bevy_ecs::system::RunSystemOnce;
 
     #[test]
     fn test_memetic_infection() {
@@ -891,6 +959,60 @@ mod tests {
 
         assert_eq!(env_a.light, env_b.light);
         assert_eq!(env_a.pressure, env_b.pressure);
+    }
+
+    #[test]
+    fn test_tectonic_epoch_scaling() {
+        let mut world = World::new();
+        let mut env = EnvironmentStack::default();
+        env.temperature[5] = bit_at(5);
+        env.pressure[5] = bit_at(5);
+        let uplift_idx = cell_index(5, 5);
+
+        world.insert_resource(Tick(99));
+        world.insert_resource(env);
+        world.run_system_once(tectonic_system).unwrap();
+        assert_eq!(
+            world.resource::<EnvironmentStack>().elevation[uplift_idx],
+            0
+        );
+
+        world.insert_resource(Tick(100));
+        world.run_system_once(tectonic_system).unwrap();
+        assert_eq!(
+            world.resource::<EnvironmentStack>().elevation[uplift_idx],
+            1
+        );
+    }
+
+    #[test]
+    fn test_tectonic_step_applies_uplift_and_erosion() {
+        let mut env = EnvironmentStack::default();
+        env.temperature[5] = bit_at(5);
+        env.pressure[5] = bit_at(5);
+        env.elevation[cell_index(5, 5)] = 10;
+
+        env.water[7] = bit_at(7);
+        env.elevation[cell_index(7, 7)] = 8;
+        env.elevation[cell_index(8, 7)] = 4;
+
+        tectonic_step(&mut env);
+
+        assert_eq!(env.elevation[cell_index(5, 5)], 11);
+        assert_eq!(env.elevation[cell_index(7, 7)], 7);
+    }
+
+    #[test]
+    fn test_geology_marks_magma_vents() {
+        let mut env = EnvironmentStack::default();
+        env.temperature[3] = bit_at(4) | bit_at(5);
+        env.elevation[cell_index(4, 3)] = 12;
+        env.elevation[cell_index(5, 3)] = 80;
+
+        geology_step(&mut env);
+
+        assert_eq!(env.geology[3] & bit_at(4), bit_at(4));
+        assert_eq!(env.geology[3] & bit_at(5), 0);
     }
 
     #[test]

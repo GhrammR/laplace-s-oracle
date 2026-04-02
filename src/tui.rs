@@ -64,6 +64,7 @@ pub struct TelemetryFrame {
     pub microbiome: [u64; 16],
     pub logic: [u64; 16],
     pub light: [u64; 16],
+    pub geology: [u64; 16],
     pub elevation: [u8; 1024],
     pub memetics: [u64; 1024],
     pub wormhole_activity: u8,
@@ -72,7 +73,7 @@ pub struct TelemetryFrame {
     pub signature: [u8; 64],
 }
 
-const FRAME_SIZE: usize = 10571;
+const FRAME_SIZE: usize = 10699;
 
 pub struct History {
     pub data: [u64; 256],
@@ -125,6 +126,7 @@ enum VisualLayer {
     Memetics,
     Logic,
     Light,
+    Geology,
     Culture,
 }
 
@@ -140,7 +142,8 @@ impl VisualLayer {
             Self::Microbiome => Self::Memetics,
             Self::Memetics => Self::Logic,
             Self::Logic => Self::Light,
-            Self::Light => Self::Culture,
+            Self::Light => Self::Geology,
+            Self::Geology => Self::Culture,
             Self::Culture => Self::Biomass,
         }
     }
@@ -159,6 +162,7 @@ impl fmt::Display for VisualLayer {
             Self::Memetics => "Memetics",
             Self::Logic => "Logic",
             Self::Light => "Light",
+            Self::Geology => "Geology",
             Self::Culture => "Culture",
         };
         f.write_str(label)
@@ -581,6 +585,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     microbiome,
                     logic,
                     light,
+                    geology,
                     elevation,
                     memetics,
                 ) = unpack_env(&buf);
@@ -602,15 +607,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                     microbiome,
                     logic,
                     light,
+                    geology,
                     elevation,
                     memetics,
-                    wormhole_activity: buf[10496],
-                    singularity_index: u16::from_le_bytes(buf[10497..10499].try_into().unwrap()),
-                    celestial_state: u64::from_le_bytes(buf[10499..10507].try_into().unwrap()),
-                    signature: buf[10507..10571].try_into().unwrap(),
+                    wormhole_activity: buf[10624],
+                    singularity_index: u16::from_le_bytes(buf[10625..10627].try_into().unwrap()),
+                    celestial_state: u64::from_le_bytes(buf[10627..10635].try_into().unwrap()),
+                    signature: buf[10635..10699].try_into().unwrap(),
                 };
                 let valid = vk
-                    .verify(&buf[4..10507], &Signature::from_bytes(&frame.signature))
+                    .verify(&buf[4..10635], &Signature::from_bytes(&frame.signature))
                     .is_ok();
                 if valid {
                     let _ = tx.send(RenderEvent::Telemetry(Box::new(frame), valid));
@@ -714,21 +720,22 @@ fn unpack_env(
     [u64; 16],
     [u64; 16],
     [u64; 16],
+    [u64; 16],
     [u8; 1024],
     [u64; 1024],
 ) {
-    let mut out_bits = [[0u64; 16]; 9];
-    for l in 0..9 {
+    let mut out_bits = [[0u64; 16]; 10];
+    for l in 0..10 {
         for i in 0..16 {
             let start = 128 + l * 128 + i * 8;
             out_bits[l][i] = u64::from_le_bytes(buf[start..start + 8].try_into().unwrap());
         }
     }
     let mut out_elevation = [0u8; 1024];
-    out_elevation.copy_from_slice(&buf[1280..2304]);
+    out_elevation.copy_from_slice(&buf[1408..2432]);
     let mut out_memetics = [0u64; 1024];
     for i in 0..1024 {
-        let start = 2304 + i * 8;
+        let start = 2432 + i * 8;
         out_memetics[i] = u64::from_le_bytes(buf[start..start + 8].try_into().unwrap());
     }
     (
@@ -741,6 +748,7 @@ fn unpack_env(
         out_bits[6],
         out_bits[7],
         out_bits[8],
+        out_bits[9],
         out_elevation,
         out_memetics,
     )
@@ -838,6 +846,7 @@ fn layer_bit(frame: &TelemetryFrame, layer: VisualLayer, x: usize, y: usize) -> 
         VisualLayer::Memetics => frame.memetics[y * 64 + x] != 0,
         VisualLayer::Logic => (frame.logic[y] >> x) & 1 == 1,
         VisualLayer::Light => (frame.light[y] >> x) & 1 == 1,
+        VisualLayer::Geology => (frame.geology[y] >> x) & 1 == 1,
         VisualLayer::Culture => culture_bit(frame.apex_linguistic_sequence, x),
     }
 }
@@ -853,6 +862,7 @@ fn primary_glyph(frame: &TelemetryFrame, layer: VisualLayer, x: usize, y: usize)
         }
         VisualLayer::Logic => '\u{26A1}',
         VisualLayer::Light => '*',
+        VisualLayer::Geology => '^',
         VisualLayer::Culture => {
             if culture_bit(frame.apex_linguistic_sequence, x) {
                 active_braille_glyph(elevation_at(frame, x, y))
@@ -868,6 +878,7 @@ fn reference_glyph(layer: VisualLayer) -> char {
     match layer {
         VisualLayer::Logic => '\u{26A1}',
         VisualLayer::Light => '*',
+        VisualLayer::Geology => '^',
         VisualLayer::Culture => '+',
         _ => '+',
     }
@@ -877,6 +888,7 @@ fn bitboard_color(state: &TuiState) -> Color {
     match state.primary_layer {
         VisualLayer::Logic => Color::Yellow,
         VisualLayer::Light => Color::LightYellow,
+        VisualLayer::Geology => Color::LightRed,
         _ => Color::White,
     }
 }
@@ -928,6 +940,8 @@ fn render_bitboard(frame: &TelemetryFrame, state: &TuiState) -> String {
                 } else {
                     output.push(' ');
                 }
+            } else if state.primary_layer == VisualLayer::Geology {
+                output.push('.');
             } else {
                 output.push(terrain_glyph(elevation_at(frame, x, y)));
             }

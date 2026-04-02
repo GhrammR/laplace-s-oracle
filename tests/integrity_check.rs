@@ -132,8 +132,8 @@ fn test_determinism_after_leap() {
 
 #[test]
 fn telemetry_frame_size_seal() {
-    assert_eq!(std::mem::size_of::<TelemetryFrame>(), 10571);
-    println!("[PASS] TelemetryFrame size is exactly 10571 bytes");
+    assert_eq!(std::mem::size_of::<TelemetryFrame>(), 10699);
+    println!("[PASS] TelemetryFrame size is exactly 10699 bytes");
 }
 
 #[test]
@@ -512,6 +512,7 @@ fn test_default_elevation_zero() {
     let env = EnvironmentStack::default();
     assert!(env.elevation.iter().all(|&v| v == 0));
     assert!(env.light.iter().all(|&v| v == 0));
+    assert!(env.geology.iter().all(|&v| v == 0));
 }
 
 #[test]
@@ -532,21 +533,24 @@ fn test_telemetry_elevation_offsets() {
         signature: [0u8; 64],
     };
     frame.stack.light[2] = 1u64 << 9;
+    frame.stack.geology[3] = 1u64 << 11;
     frame.stack.elevation[17] = 9;
     frame.wormhole_activity = 3;
     frame.singularity_index = 4_321;
     frame.celestial_state = 0x0102_0003_0000_0004;
     let bytes = frame.as_bytes();
     let light_word = u64::from_le_bytes(bytes[1152 + 16..1152 + 24].try_into().unwrap());
+    let geology_word = u64::from_le_bytes(bytes[1280 + 24..1280 + 32].try_into().unwrap());
     assert_eq!(light_word, 1u64 << 9);
-    assert_eq!(bytes[1280 + 17], 9);
-    assert_eq!(bytes[10496], 3);
+    assert_eq!(geology_word, 1u64 << 11);
+    assert_eq!(bytes[1408 + 17], 9);
+    assert_eq!(bytes[10624], 3);
     assert_eq!(
-        u16::from_le_bytes(bytes[10497..10499].try_into().unwrap()),
+        u16::from_le_bytes(bytes[10625..10627].try_into().unwrap()),
         4_321
     );
     assert_eq!(
-        u64::from_le_bytes(bytes[10499..10507].try_into().unwrap()),
+        u64::from_le_bytes(bytes[10627..10635].try_into().unwrap()),
         0x0102_0003_0000_0004
     );
 }

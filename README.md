@@ -27,7 +27,8 @@ The simulation world is a toroidal `64 x 16` `EnvironmentStack`. Each layer is f
 - **Microbiome**: Conway-style microbial substrate driving mutagenic pressure.
 - **Logic**: Bitwise computation substrate for wires, NAND gates, and semiconductor pulses.
 - **Light**: Orbital illumination band used for photosynthesis, heating, and celestial drift.
-- **Elevation**: Static terrain height map influencing fluid flow and pressure retention.
+- **Geology**: Compressed subterranean state bitboard where `1` marks magma vents and `0` marks solid crust.
+- **Elevation**: Dynamic topography that now shifts through uplift and erosion on deep-time tectonic epochs.
 - **Memetics**: Per-cell cultural hash substrate for ideology and social diffusion.
 
 ## Orbital Mechanics & Celestial State
@@ -39,6 +40,7 @@ The resulting celestial frame drives:
 - packed telemetry state for star, season, tide, and day
 - tidal pressure bonuses and lateral water pull on the moon row
 - Panopticon header state such as `Star`, `Season`, and `Tide`
+- slow tectonic uplift and erosion that reshape `Elevation` every 100 ticks while `Geology` compresses subterranean vents into a 2.5D bitboard
 
 ## Operator Surfaces
 
