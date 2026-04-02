@@ -14,3 +14,8 @@
 - Hypothesis: direct operator control over `pressure`, `light`, and `elevation` combined with orbital tides will let researchers induce deterministic monsoon corridors, revealing whether coastal civ-density spikes can be reproduced without adding any new climate layers.
 - Hypothesis: recurrent `/sync-docs` refreshes anchored to the code surface will reduce future operator error rates, especially around miracles like `/terrain-raise`, `/logic-clear`, and orbital `Light` interactions whose semantics are easy to misremember.
 - Meta-Improvement: add a dedicated Codex skill `ops-drift-audit` that compares `README.md`, `OPERATIONS.md`, `.codex/commands/*.md`, and the live command/parser surface, then emits a pre-release diff summary before `/release` is allowed to proceed.
+
+## v0.13.0 - 2026-04-02
+- Hypothesis: repeated tectonic uplift beneath pressure-rich orbital tide bands will create deterministic volcanic coastlines where `geology` vents and elevated basins lock into long-lived habitable crescents.
+- Hypothesis: coupling erosion to lateral water flow and epoch-scaled uplift will produce naturally migrating river canyons even without a full voxel depth stack, letting `geology` act as a compressed proxy for underground instability.
+- Meta-Improvement: add a Codex skill `deep-time-audit` that samples terrain snapshots every 100 ticks, compares `elevation` and `geology` diffs, and flags whether tectonic epochs are materially changing the world or wasting simulation budget.
